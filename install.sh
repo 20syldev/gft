@@ -8,6 +8,7 @@ set -e
 VERSION="1.0.0"
 CDN="https://cdn.sylvain.sh/bash"
 
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[1;94m'
