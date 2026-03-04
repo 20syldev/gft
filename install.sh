@@ -5,7 +5,8 @@
 
 set -e
 
-VERSION="1.0.0"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERSION="$(cat "$SCRIPT_DIR/VERSION")"
 CDN="https://cdn.sylvain.sh/bash"
 
 # Colors
