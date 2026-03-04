@@ -7,7 +7,7 @@ A lightweight command-line tool to fetch release information, list binary assets
 ### Via curl (recommended)
 
 ```bash
-curl -fsSL https://cdn.sylvain.pro/bash/gft@latest/install.sh | sh
+curl -fsSL https://cdn.sylvain.sh/bash/gft@latest/install.sh | sh
 ```
 
 ### Manual installation

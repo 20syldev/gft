@@ -1,12 +1,12 @@
 #!/bin/sh
 
 # gft installer
-# Usage: curl -fsSL https://cdn.sylvain.pro/bash/gft@latest/install.sh | sh
+# Usage: curl -fsSL https://cdn.sylvain.sh/bash/gft@latest/install.sh | sh
 
 set -e
 
 VERSION="1.0.0"
-CDN="https://cdn.sylvain.pro/bash"
+CDN="https://cdn.sylvain.sh/bash"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
