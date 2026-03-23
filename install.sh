@@ -5,9 +5,14 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VERSION="$(cat "$SCRIPT_DIR/VERSION")"
 CDN="https://cdn.sylvain.sh/bash"
+VERSION="$(curl -fsSL "${CDN}/gft@latest" | grep -o '"version": *"[^"]*"' | head -1 | cut -d'"' -f4)"
+if [ -z "$VERSION" ]; then
+    printf "${RED}Failed to fetch version${NC}\n"
+    exit 1
+fi
+
+GFT_DIR="$HOME/.config/gft"
 
 # Colors
 RED='\033[0;31m'
@@ -20,7 +25,26 @@ NC='\033[0m'
 printf "${BLUE}gft %s installer${NC}\n" "$VERSION"
 printf "\n"
 
-# ─── Install directory ───────────────────────────────────────────────
+# ─── Create config directory ────────────────────────────────────────
+
+mkdir -p "$GFT_DIR"
+printf "${BLUE}Config directory:${NC} %s\n" "$GFT_DIR"
+
+# ─── Download gft ───────────────────────────────────────────────────
+
+printf "${BLUE}Downloading gft...${NC}\n"
+
+if curl -fsSL "${CDN}/gft@${VERSION}/gft" -o "$GFT_DIR/gft"; then
+    chmod +x "$GFT_DIR/gft"
+    printf "${GREEN}gft downloaded${NC}\n"
+else
+    printf "${RED}Download failed${NC}\n"
+    exit 1
+fi
+
+echo "$VERSION" > "$GFT_DIR/VERSION"
+
+# ─── Install directory ──────────────────────────────────────────────
 
 if [ -w "/usr/local/bin" ]; then
     INSTALL_DIR="/usr/local/bin"
@@ -34,22 +58,11 @@ fi
 
 printf "${BLUE}Install directory:${NC} %s\n" "$INSTALL_DIR"
 
-# ─── Download gft ───────────────────────────────────────────────────
-
-printf "${BLUE}Downloading gft...${NC}\n"
-
-if curl -fsSL "${CDN}/gft@${VERSION}/gft" -o "$INSTALL_DIR/gft"; then
-    printf "${GREEN}Downloaded${NC}\n"
-else
-    printf "${RED}Download failed${NC}\n"
-    exit 1
-fi
-
-chmod +x "$INSTALL_DIR/gft"
-ln -sf "$INSTALL_DIR/gft" "$INSTALL_DIR/gfv"
+ln -sf "$GFT_DIR/gft" "$INSTALL_DIR/gft"
+ln -sf "$GFT_DIR/gft" "$INSTALL_DIR/gfv"
 printf "${GREEN}gft installed (alias: gfv)${NC}\n"
 
-# ─── Bash completion ─────────────────────────────────────────────────
+# ─── Bash completion ────────────────────────────────────────────────
 
 BASH_COMP_DIR="/usr/share/bash-completion/completions"
 LOCAL_BASH_COMP_DIR="$HOME/.local/share/bash-completion/completions"
@@ -67,7 +80,7 @@ if [ -n "$BASH_COMP_DEST" ]; then
     fi
 fi
 
-# ─── Zsh completion ──────────────────────────────────────────────────
+# ─── Zsh completion ─────────────────────────────────────────────────
 
 ZSH_COMP_DIR="/usr/share/zsh/vendor-completions"
 LOCAL_ZSH_COMP_DIR="$HOME/.local/share/zsh/site-functions"
@@ -85,7 +98,7 @@ if [ -n "$ZSH_COMP_DEST" ]; then
     fi
 fi
 
-# ─── PATH ────────────────────────────────────────────────────────────
+# ─── PATH ───────────────────────────────────────────────────────────
 
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
@@ -110,6 +123,6 @@ case ":$PATH:" in
         ;;
 esac
 
-# ─── Done ────────────────────────────────────────────────────────────
+# ─── Done ───────────────────────────────────────────────────────────
 
 printf "\n${GREEN}Done!${NC} Run: ${CYAN}gft --help${NC}\n"

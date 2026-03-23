@@ -6,8 +6,8 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VERSION="$(cat "$SCRIPT_DIR/VERSION")"
+GFT_DIR="$HOME/.config/gft"
+VERSION="$(cat "$GFT_DIR/VERSION" 2>/dev/null || echo "unknown")"
 
 # Colors
 RED='\033[0;31m'
@@ -68,7 +68,7 @@ show_help() {
     echo "  gft cli/cli --assets             List all binary downloads"
     echo "  gft cli/cli --detect             Find the right binary for you"
     echo "  gft cli/cli --get linux-amd64    Download matching binary"
-    echo "  VERSION=\$(gft nodejs/node -q)   Script-friendly version"
+    echo "  VERSION=\$(gft nodejs/node -q)    Script-friendly version"
 }
 
 # ─── Self-update check ───────────────────────────────────────────────
@@ -96,8 +96,7 @@ check_update() {
     else
         echo -e "${YELLOW}${SYM_BULLET} Update available: ${CYAN}${VERSION}${NC} ${SYM_ARROW} ${GREEN}${latest}${NC}"
         echo
-        echo -e "  ${BLUE}Via apt:${NC}    sudo apt update && sudo apt upgrade"
-        echo -e "  ${BLUE}Via .deb:${NC}   ${CYAN}gft $GFT_REPO --get deb${NC}"
+        echo -e "  ${BLUE}Update:${NC}     ${CYAN}curl -fsSL https://cdn.sylvain.sh/bash/gft@latest/update.sh | sh${NC}"
         echo -e "  ${BLUE}Release:${NC}    https://github.com/$GFT_REPO/releases/tag/$latest"
     fi
 }
