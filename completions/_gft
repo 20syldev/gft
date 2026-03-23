@@ -15,6 +15,7 @@ _gft() {
         '(-q --quiet)'{-q,--quiet}'[Output version only]' \
         '(-h --help)'{-h,--help}'[Show help]' \
         '(-v --version)'{-v,--version}'[Show version]' \
+        '--check-update[Check for newer version]' \
         '--no-color[Disable colors]'
 }
 

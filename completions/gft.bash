@@ -7,7 +7,7 @@ _gft() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    opts="--help --version --assets --detect --get --notes --json --quiet --no-color"
+    opts="--help --version --check-update --assets --detect --get --notes --json --quiet --no-color"
 
     case "$prev" in
         --get)
