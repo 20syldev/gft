@@ -61,6 +61,7 @@ show_help() {
     echo "  -v, --version      Show version"
     echo "  --check-update     Check if a newer version is available"
     echo "  --pre              Include pre-releases when resolving latest"
+    echo "  --checksum         Verify download checksum after --get"
     echo "  --no-color         Disable colors"
     echo "  --no-cache         Bypass response cache"
     echo "  --clear-cache      Clear all cached responses"
@@ -561,6 +562,82 @@ output_json() {
     printf '}\n'
 }
 
+# ─── Checksum verification ───────────────────────────────────────────
+
+sha256_cmd() {
+    if command -v sha256sum &>/dev/null; then
+        echo "sha256sum"
+    elif command -v shasum &>/dev/null; then
+        echo "shasum -a 256"
+    else
+        echo ""
+    fi
+}
+
+find_checksum_asset() {
+    local filename="$1"
+    local assets="$2"
+    local patterns=("${filename}.sha256" "${filename}.sha256sum" "${filename}.sha512"
+                    "SHA256SUMS" "checksums.txt" "SHASUMS256.txt" "sha256sums.txt")
+
+    for pattern in "${patterns[@]}"; do
+        local match
+        match=$(echo "$assets" | grep -iF "/$pattern" | head -1) || true
+        if [[ -n "$match" ]]; then
+            echo "$match"
+            return 0
+        fi
+    done
+
+    echo "$assets" | grep -iE '\.(sha256|sha512|sha256sum)$|checksums' | head -1 || true
+}
+
+verify_checksum() {
+    local file="$1"
+    local checksum_path="$2"
+    local checksum_url="https://github.com${checksum_path}"
+    local filename
+    filename=$(basename "$file")
+
+    echo -e "${SYM_ARROW} Verifying checksum..."
+
+    local cmd
+    cmd=$(sha256_cmd)
+    if [[ -z "$cmd" ]]; then
+        echo -e "${YELLOW}${SYM_FAIL} No sha256sum/shasum found, skipping verification${NC}"
+        return 0
+    fi
+
+    local tmp_checksum
+    tmp_checksum=$(mktemp)
+    if ! curl -sL --max-time 10 "$checksum_url" -o "$tmp_checksum"; then
+        rm -f "$tmp_checksum"
+        echo -e "${YELLOW}${SYM_FAIL} Could not download checksum file, skipping${NC}"
+        return 0
+    fi
+
+    local expected_hash
+    expected_hash=$(grep -i "$filename" "$tmp_checksum" | awk '{print $1}' | head -1) || true
+    rm -f "$tmp_checksum"
+
+    if [[ -z "$expected_hash" ]]; then
+        echo -e "${YELLOW}${SYM_FAIL} File not found in checksum list, skipping${NC}"
+        return 0
+    fi
+
+    local actual_hash
+    actual_hash=$(eval "$cmd" "$file" | awk '{print $1}')
+
+    if [[ "$actual_hash" == "$expected_hash" ]]; then
+        echo -e "${GREEN}${SYM_OK} Checksum verified${NC}"
+    else
+        echo -e "${RED}${SYM_FAIL} Checksum mismatch!${NC}"
+        echo -e "  Expected: ${CYAN}${expected_hash}${NC}"
+        echo -e "  Got:      ${RED}${actual_hash}${NC}"
+        return 1
+    fi
+}
+
 # ─── Direct asset download ───────────────────────────────────────────
 
 download_asset() {
@@ -607,6 +684,16 @@ download_asset() {
     else
         echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         return 1
+    fi
+
+    if [[ "${MODE_VERIFY:-false}" == true ]]; then
+        local checksum_path
+        checksum_path=$(find_checksum_asset "$filename" "$assets")
+        if [[ -n "$checksum_path" ]]; then
+            verify_checksum "$filename" "$checksum_path"
+        else
+            echo -e "${YELLOW}${SYM_FAIL} No checksum file found for ${filename}${NC}"
+        fi
     fi
 }
 
@@ -692,6 +779,7 @@ MODE_COMPARE=false
 MODE_PRE=false
 MODE_LIST=false
 MODE_SOURCE=""
+MODE_VERIFY=false
 NO_CACHE=false
 GET_PATTERN=""
 TAG_FROM=""
@@ -718,6 +806,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-cache)
             NO_CACHE=true
+            shift
+            ;;
+        --checksum|--verify)
+            MODE_VERIFY=true
             shift
             ;;
         --source)
