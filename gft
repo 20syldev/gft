@@ -58,6 +58,7 @@ show_help() {
     echo "  -h, --help         Show this help"
     echo "  -v, --version      Show version"
     echo "  --check-update     Check if a newer version is available"
+    echo "  --pre              Include pre-releases when resolving latest"
     echo "  --no-color         Disable colors"
     echo "  --no-cache         Bypass response cache"
     echo "  --clear-cache      Clear all cached responses"
@@ -190,18 +191,43 @@ check_repository_exists() {
 # ─── Tag resolution ──────────────────────────────────────────────────
 
 get_latest_tag() {
-    local releases_url="https://github.com/$REPO/releases"
-    local response
-
-    response=$(fetch_page "$releases_url")
-
-    if [ -n "$response" ]; then
+    if [[ "${MODE_PRE:-false}" == true ]]; then
+        # Include pre-releases: take first entry from /releases
+        local response
+        response=$(fetch_page "https://github.com/$REPO/releases")
+        if [[ -n "$response" ]]; then
+            local found_tag
+            found_tag=$(echo "$response" \
+                | grep -o 'href="[^"]*/releases/tag/[^"]*"' | head -1 \
+                | sed 's/.*\/tag\///; s/".*//')
+            if [[ -n "$found_tag" ]]; then
+                echo "$found_tag"
+                return 0
+            fi
+        fi
+    else
+        # Stable only: follow /releases/latest redirect
+        local resolved
+        resolved=$(curl -sL --max-time 10 -o /dev/null -w '%{url_effective}' \
+            "https://github.com/$REPO/releases/latest" 2>/dev/null)
         local found_tag
-        found_tag=$(echo "$response" | grep -o 'href="[^"]*/releases/tag/[^"]*"' | head -1 | sed 's/.*\/tag\///; s/".*//')
-
-        if [ -n "$found_tag" ]; then
+        found_tag=$(echo "$resolved" | grep -oP '/releases/tag/\K[^/?]+') || true
+        if [[ -n "$found_tag" ]]; then
             echo "$found_tag"
             return 0
+        fi
+
+        # Fallback: scrape /releases
+        local response
+        response=$(fetch_page "https://github.com/$REPO/releases")
+        if [[ -n "$response" ]]; then
+            found_tag=$(echo "$response" \
+                | grep -o 'href="[^"]*/releases/tag/[^"]*"' | head -1 \
+                | sed 's/.*\/tag\///; s/".*//')
+            if [[ -n "$found_tag" ]]; then
+                echo "$found_tag"
+                return 0
+            fi
         fi
     fi
 
@@ -609,6 +635,7 @@ MODE_GET=false
 MODE_NOTES=false
 MODE_JSON=false
 MODE_COMPARE=false
+MODE_PRE=false
 NO_CACHE=false
 GET_PATTERN=""
 TAG_FROM=""
@@ -635,6 +662,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-cache)
             NO_CACHE=true
+            shift
+            ;;
+        --pre|--prerelease)
+            MODE_PRE=true
             shift
             ;;
         --clear-cache)
