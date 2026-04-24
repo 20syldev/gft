@@ -46,6 +46,7 @@ show_help() {
     echo
     echo "Usage:"
     echo "  gft <user/repo> [tag]            Show release info (latest by default)"
+    echo "  gft <user/repo> --releases       List all available releases"
     echo "  gft <user/repo> --assets         List release binary assets"
     echo "  gft <user/repo> --detect         Auto-detect best asset for your OS"
     echo "  gft <user/repo> --get <pattern>  Download asset matching pattern"
@@ -366,6 +367,58 @@ list_assets() {
     echo -e "  ${GREEN}${count} asset(s) available${NC}"
 }
 
+# ─── Releases listing ────────────────────────────────────────────────
+
+list_releases() {
+    local releases_url="https://github.com/$REPO/releases"
+    local response
+    response=$(fetch_page "$releases_url")
+
+    if [[ -z "$response" ]]; then
+        echo -e "${RED}${SYM_FAIL} Could not fetch releases page${NC}"
+        return 1
+    fi
+
+    local all_tags
+    all_tags=$(echo "$response" \
+        | grep -oP 'href="/[^"]+/releases/tag/\K[^"]+' \
+        | grep -v '^#' \
+        | awk '!seen[$0]++')
+
+    if [[ -z "$all_tags" ]]; then
+        echo -e "${YELLOW}${SYM_FAIL} No releases found for $REPO${NC}"
+        return 0
+    fi
+
+    if [[ "${MODE_JSON:-false}" == true ]]; then
+        printf '[\n'
+        local first=true
+        while IFS= read -r tag; do
+            $first || printf ',\n'
+            printf '  {"tag": "%s"}' "$tag"
+            first=false
+        done <<< "$all_tags"
+        printf '\n]\n'
+        return 0
+    fi
+
+    echo
+    echo -e "${YELLOW}${SYM_BULLET} Releases ($REPO)${NC}"
+    echo
+
+    local count=0
+    while IFS= read -r tag; do
+        ((count++)) || true
+        printf "  ${SYM_TEE}${SYM_DASH} ${CYAN}%s${NC}\n" "$tag"
+    done <<< "$all_tags"
+
+    echo
+    echo -e "  ${GREEN}${count} release(s) shown${NC} ${SYM_ARROW} https://github.com/$REPO/releases"
+    if [[ "${MODE_PRE:-false}" != true ]]; then
+        echo -e "  ${CYAN}Tip:${NC} use ${YELLOW}--pre${NC} to include pre-releases when resolving latest"
+    fi
+}
+
 # ─── Platform detection ──────────────────────────────────────────────
 
 detect_platform() {
@@ -636,6 +689,7 @@ MODE_NOTES=false
 MODE_JSON=false
 MODE_COMPARE=false
 MODE_PRE=false
+MODE_LIST=false
 NO_CACHE=false
 GET_PATTERN=""
 TAG_FROM=""
@@ -662,6 +716,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-cache)
             NO_CACHE=true
+            shift
+            ;;
+        --releases|--list)
+            MODE_LIST=true
             shift
             ;;
         --pre|--prerelease)
@@ -759,6 +817,12 @@ fi
 
 # Check repo exists
 check_repository_exists
+
+# Handle list mode
+if [[ "$MODE_LIST" == true ]]; then
+    list_releases
+    exit 0
+fi
 
 # Handle compare mode separately
 if [[ "$MODE_COMPARE" == true ]]; then
