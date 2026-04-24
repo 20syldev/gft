@@ -7,6 +7,8 @@
 set -e
 
 GFT_DIR="$HOME/.config/gft"
+CACHE_DIR="$GFT_DIR/cache"
+CACHE_TTL="${GFT_CACHE_TTL:-300}"
 VERSION="$(cat "$GFT_DIR/VERSION" 2>/dev/null || echo "unknown")"
 
 # Colors
@@ -57,10 +59,13 @@ show_help() {
     echo "  -v, --version      Show version"
     echo "  --check-update     Check if a newer version is available"
     echo "  --no-color         Disable colors"
+    echo "  --no-cache         Bypass response cache"
+    echo "  --clear-cache      Clear all cached responses"
     echo
     echo "Environment:"
     echo "  NO_COLOR           Set to disable colors"
     echo "  GITHUB_TOKEN       Set for higher API rate limits"
+    echo "  GFT_CACHE_TTL      Cache TTL in seconds (default: 300)"
     echo
     echo "Examples:"
     echo "  gft cli/cli                      Latest release of GitHub CLI"
@@ -101,10 +106,50 @@ check_update() {
     fi
 }
 
+# ─── Cache utilities ─────────────────────────────────────────────────
+
+file_mtime() {
+    stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
+}
+
+cache_key() {
+    printf '%s' "$1" | tr -cs 'a-zA-Z0-9._-' '_'
+}
+
+cache_fetch() {
+    local url="$1"
+    local key
+    key=$(cache_key "$url")
+    local cache_file="$CACHE_DIR/$key"
+
+    if [[ "${NO_CACHE:-false}" != true ]] && [[ -f "$cache_file" ]]; then
+        local now mtime age
+        now=$(date +%s)
+        mtime=$(file_mtime "$cache_file")
+        if [[ -n "$mtime" ]]; then
+            age=$(( now - mtime ))
+            if [[ $age -lt $CACHE_TTL ]]; then
+                cat "$cache_file"
+                return 0
+            fi
+        fi
+    fi
+
+    local content
+    content=$(curl -sL --max-time 10 "$url" 2>/dev/null)
+
+    if [[ "${NO_CACHE:-false}" != true ]] && [[ -n "$content" ]]; then
+        mkdir -p "$CACHE_DIR"
+        printf '%s' "$content" > "$cache_file"
+    fi
+
+    printf '%s' "$content"
+}
+
 # ─── Fetch utilities ─────────────────────────────────────────────────
 
 fetch_page() {
-    curl -sL --max-time 10 "$1" 2>/dev/null
+    cache_fetch "$1"
 }
 
 fetch_api() {
@@ -564,6 +609,7 @@ MODE_GET=false
 MODE_NOTES=false
 MODE_JSON=false
 MODE_COMPARE=false
+NO_CACHE=false
 GET_PATTERN=""
 TAG_FROM=""
 TAG_TO=""
@@ -586,6 +632,20 @@ while [[ $# -gt 0 ]]; do
         --no-color)
             NO_COLOR=1
             shift
+            ;;
+        --no-cache)
+            NO_CACHE=true
+            shift
+            ;;
+        --clear-cache)
+            setup_colors
+            if [[ -d "$CACHE_DIR" ]]; then
+                rm -rf "$CACHE_DIR"
+                echo -e "${GREEN}${SYM_OK} Cache cleared${NC}"
+            else
+                echo -e "${CYAN}${SYM_DOT} Cache is already empty${NC}"
+            fi
+            exit 0
             ;;
         -q|--quiet)
             MODE_QUIET=true

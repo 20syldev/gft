@@ -50,6 +50,7 @@ done
 
 rm -f "$GFT_DIR/gft"
 rm -f "$GFT_DIR/VERSION"
+rm -rf "$GFT_DIR/cache"
 rmdir "$GFT_DIR" 2>/dev/null && printf "${GREEN}Removed:${NC} %s\n" "$GFT_DIR"
 
 # ─── Remove completions ────────────────────────────────────────────
