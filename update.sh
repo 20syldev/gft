@@ -29,7 +29,11 @@ fi
 
 # ─── Update gft ─────────────────────────────────────────────────────
 
-if curl -fsSL "${CDN}/gft@${VERSION}/gft" -o "$GFT_DIR/gft"; then
+if [ -f "./gft" ]; then
+    cp "./gft" "$GFT_DIR/gft"
+    chmod +x "$GFT_DIR/gft"
+    printf "${GREEN}gft updated (local)${NC}\n"
+elif curl -fsSL "${CDN}/gft@${VERSION}/gft" -o "$GFT_DIR/gft"; then
     chmod +x "$GFT_DIR/gft"
     printf "${GREEN}gft updated${NC}\n"
 else
@@ -43,7 +47,11 @@ echo "$VERSION" > "$GFT_DIR/VERSION"
 
 for comp_dir in /usr/share/bash-completion/completions "$HOME/.local/share/bash-completion/completions"; do
     if [ -f "$comp_dir/gft" ]; then
-        curl -fsSL "${CDN}/gft@${VERSION}/completions/gft.bash" -o "$comp_dir/gft" 2>/dev/null
+        if [ -f "./completions/gft.bash" ]; then
+            cp "./completions/gft.bash" "$comp_dir/gft"
+        else
+            curl -fsSL "${CDN}/gft@${VERSION}/completions/gft.bash" -o "$comp_dir/gft" 2>/dev/null
+        fi
         printf "${GREEN}Bash completion updated${NC}\n"
         break
     fi
@@ -51,8 +59,26 @@ done
 
 for comp_dir in /usr/share/zsh/vendor-completions "$HOME/.local/share/zsh/site-functions"; do
     if [ -f "$comp_dir/_gft" ]; then
-        curl -fsSL "${CDN}/gft@${VERSION}/completions/_gft" -o "$comp_dir/_gft" 2>/dev/null
+        if [ -f "./completions/_gft" ]; then
+            cp "./completions/_gft" "$comp_dir/_gft"
+        else
+            curl -fsSL "${CDN}/gft@${VERSION}/completions/_gft" -o "$comp_dir/_gft" 2>/dev/null
+        fi
         printf "${GREEN}Zsh completion updated${NC}\n"
+        break
+    fi
+done
+
+# ─── Update manpage ─────────────────────────────────────────────────
+
+for man_dir in /usr/local/share/man/man1 "$HOME/.local/share/man/man1"; do
+    if [ -f "$man_dir/gft.1" ]; then
+        if [ -f "./gft.1" ]; then
+            cp "./gft.1" "$man_dir/gft.1"
+        else
+            curl -fsSL "${CDN}/gft@${VERSION}/gft.1" -o "$man_dir/gft.1" 2>/dev/null
+        fi
+        printf "${GREEN}Manpage updated${NC}\n"
         break
     fi
 done

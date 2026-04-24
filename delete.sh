@@ -69,6 +69,15 @@ for comp in /usr/share/zsh/vendor-completions/_gft "$HOME/.local/share/zsh/site-
     fi
 done
 
+# ─── Remove manpage ────────────────────────────────────────────────
+
+for man in /usr/local/share/man/man1/gft.1 "$HOME/.local/share/man/man1/gft.1"; do
+    if [ -f "$man" ]; then
+        rm -f "$man"
+        printf "${GREEN}Removed:${NC} %s\n" "$man"
+    fi
+done
+
 # ─── Clean PATH from shell config ──────────────────────────────────
 
 for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc"; do

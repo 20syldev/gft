@@ -32,11 +32,15 @@ printf "${BLUE}Config directory:${NC} %s\n" "$GFT_DIR"
 
 # ─── Download gft ───────────────────────────────────────────────────
 
-printf "${BLUE}Downloading gft...${NC}\n"
+printf "${BLUE}Installing gft...${NC}\n"
 
-if curl -fsSL "${CDN}/gft@${VERSION}/gft" -o "$GFT_DIR/gft"; then
+if [ -f "./gft" ]; then
+    cp "./gft" "$GFT_DIR/gft"
     chmod +x "$GFT_DIR/gft"
-    printf "${GREEN}gft downloaded${NC}\n"
+    printf "${GREEN}gft installed (local)${NC}\n"
+elif curl -fsSL "${CDN}/gft@${VERSION}/gft" -o "$GFT_DIR/gft"; then
+    chmod +x "$GFT_DIR/gft"
+    printf "${GREEN}gft installed${NC}\n"
 else
     printf "${RED}Download failed${NC}\n"
     exit 1
@@ -75,7 +79,9 @@ elif mkdir -p "$LOCAL_BASH_COMP_DIR" 2>/dev/null; then
 fi
 
 if [ -n "$BASH_COMP_DEST" ]; then
-    if curl -fsSL "${CDN}/gft@${VERSION}/completions/gft.bash" -o "$BASH_COMP_DEST" 2>/dev/null; then
+    if [ -f "./completions/gft.bash" ]; then
+        cp "./completions/gft.bash" "$BASH_COMP_DEST" && printf "${GREEN}Bash completion installed${NC}\n"
+    elif curl -fsSL "${CDN}/gft@${VERSION}/completions/gft.bash" -o "$BASH_COMP_DEST" 2>/dev/null; then
         printf "${GREEN}Bash completion installed${NC}\n"
     fi
 fi
@@ -93,8 +99,30 @@ elif mkdir -p "$LOCAL_ZSH_COMP_DIR" 2>/dev/null; then
 fi
 
 if [ -n "$ZSH_COMP_DEST" ]; then
-    if curl -fsSL "${CDN}/gft@${VERSION}/completions/_gft" -o "$ZSH_COMP_DEST" 2>/dev/null; then
+    if [ -f "./completions/_gft" ]; then
+        cp "./completions/_gft" "$ZSH_COMP_DEST" && printf "${GREEN}Zsh completion installed${NC}\n"
+    elif curl -fsSL "${CDN}/gft@${VERSION}/completions/_gft" -o "$ZSH_COMP_DEST" 2>/dev/null; then
         printf "${GREEN}Zsh completion installed${NC}\n"
+    fi
+fi
+
+# ─── Manpage ────────────────────────────────────────────────────────
+
+MAN_DIR="/usr/local/share/man/man1"
+LOCAL_MAN_DIR="$HOME/.local/share/man/man1"
+
+MAN_DEST=""
+if [ -w "$MAN_DIR" ]; then
+    MAN_DEST="$MAN_DIR/gft.1"
+elif mkdir -p "$LOCAL_MAN_DIR" 2>/dev/null; then
+    MAN_DEST="$LOCAL_MAN_DIR/gft.1"
+fi
+
+if [ -n "$MAN_DEST" ]; then
+    if [ -f "./gft.1" ]; then
+        cp "./gft.1" "$MAN_DEST" && printf "${GREEN}Manpage installed${NC}\n"
+    elif curl -fsSL "${CDN}/gft@${VERSION}/gft.1" -o "$MAN_DEST" 2>/dev/null; then
+        printf "${GREEN}Manpage installed${NC}\n"
     fi
 fi
 
