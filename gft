@@ -63,6 +63,7 @@ show_help() {
     echo "  --check-update     Check if a newer version is available"
     echo "  --pre              Include pre-releases when resolving latest"
     echo "  --checksum         Verify download checksum after --get"
+    echo "  --open             Open release page in browser"
     echo "  --no-color         Disable colors"
     echo "  --no-cache         Bypass response cache"
     echo "  --clear-cache      Clear all cached responses"
@@ -832,6 +833,45 @@ install_asset() {
     rm -rf "$tmp_dir"
 }
 
+# ─── Open in browser ─────────────────────────────────────────────────
+
+open_url() {
+    local url="$1"
+
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        if command -v wslview &>/dev/null; then
+            wslview "$url" 2>/dev/null &
+        else
+            cmd.exe /c start "$url" 2>/dev/null &
+        fi
+        echo -e "${GREEN}${SYM_OK} Opening ${CYAN}${url}${NC}"
+        return 0
+    fi
+
+    local os
+    os=$(uname -s)
+    case "$os" in
+        Darwin)
+            open "$url" 2>/dev/null &
+            echo -e "${GREEN}${SYM_OK} Opening ${CYAN}${url}${NC}"
+            ;;
+        Linux)
+            if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+                echo -e "${YELLOW}${SYM_FAIL} No display detected, cannot open browser${NC}"
+                echo -e "  URL: ${CYAN}${url}${NC}"
+                return 1
+            fi
+            xdg-open "$url" 2>/dev/null &
+            echo -e "${GREEN}${SYM_OK} Opening ${CYAN}${url}${NC}"
+            ;;
+        *)
+            echo -e "${YELLOW}${SYM_FAIL} Cannot open browser on this platform${NC}"
+            echo -e "  URL: ${CYAN}${url}${NC}"
+            return 1
+            ;;
+    esac
+}
+
 # ─── Version comparison ──────────────────────────────────────────────
 
 compare_releases() {
@@ -916,6 +956,7 @@ MODE_LIST=false
 MODE_SOURCE=""
 MODE_VERIFY=false
 MODE_INSTALL=false
+MODE_OPEN=false
 NO_CACHE=false
 GET_PATTERN=""
 TAG_FROM=""
@@ -942,6 +983,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-cache)
             NO_CACHE=true
+            shift
+            ;;
+        --open)
+            MODE_OPEN=true
             shift
             ;;
         --install)
@@ -1091,6 +1136,11 @@ resolve_tag
 
 # Build URLs
 build_urls
+
+# Open in browser (combinable, does not exit)
+if [[ "$MODE_OPEN" == true ]]; then
+    open_url "$TAG_URL"
+fi
 
 # Dispatch by mode
 if [[ "$MODE_QUIET" == true ]]; then
