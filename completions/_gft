@@ -4,6 +4,20 @@
 # Install to /usr/share/zsh/vendor-completions/_gft
 
 _gft() {
+    local -a subcommands
+    subcommands=(
+        'update:Upgrade gft to the latest version'
+        'delete:Uninstall gft'
+        'uninstall:Uninstall gft'
+    )
+
+    if (( CURRENT == 2 )); then
+        _alternative \
+            'subcommands:subcommand:compadd -a subcommands' \
+            'repos:repository (user/repo):'
+        return
+    fi
+
     _arguments \
         '1:repository (user/repo):' \
         '2:tag or version range:' \
