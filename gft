@@ -53,6 +53,7 @@ show_help() {
     echo "  gft <user/repo> --notes          Show release notes"
     echo "  gft <user/repo> --json           Output as JSON"
     echo "  gft <user/repo> -q               Output version number only"
+    echo "  gft <user/repo> --source zip     Download source archive (non-interactive)"
     echo "  gft <user/repo> v1.0..v2.0       Compare two releases"
     echo
     echo "Options:"
@@ -690,6 +691,7 @@ MODE_JSON=false
 MODE_COMPARE=false
 MODE_PRE=false
 MODE_LIST=false
+MODE_SOURCE=""
 NO_CACHE=false
 GET_PATTERN=""
 TAG_FROM=""
@@ -717,6 +719,21 @@ while [[ $# -gt 0 ]]; do
         --no-cache)
             NO_CACHE=true
             shift
+            ;;
+        --source)
+            MODE_SOURCE="${2:-}"
+            if [[ -z "$MODE_SOURCE" ]]; then
+                echo -e "${RED}${SYM_FAIL} --source requires an argument: zip or tar${NC}"
+                exit 1
+            fi
+            case "$MODE_SOURCE" in
+                zip|tar|tar.gz|tarball) ;;
+                *)
+                    echo -e "${RED}${SYM_FAIL} --source argument must be 'zip' or 'tar'${NC}"
+                    exit 1
+                    ;;
+            esac
+            shift 2
             ;;
         --releases|--list)
             MODE_LIST=true
@@ -804,6 +821,12 @@ if [[ ! "$REPO" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
     exit 1
 fi
 
+# Conflict checks
+if [[ -n "$MODE_SOURCE" ]] && [[ "$MODE_GET" == true ]]; then
+    echo -e "${RED}${SYM_FAIL} --source and --get cannot be used together${NC}"
+    exit 1
+fi
+
 # ─── Main flow ───────────────────────────────────────────────────────
 
 # Init platform detection if needed
@@ -850,6 +873,34 @@ fi
 
 if [[ "$MODE_GET" == true ]]; then
     download_asset "$GET_PATTERN"
+    exit 0
+fi
+
+# Non-interactive source download
+if [[ -n "$MODE_SOURCE" ]]; then
+    dl_file=""
+    case "$MODE_SOURCE" in
+        zip)
+            echo -e "${SYM_ARROW} Downloading ZIP source archive..."
+            dl_file=$(basename "$ZIP_URL")
+            if curl -L --progress-bar "$ZIP_URL" -o "$dl_file"; then
+                echo -e "${GREEN}${SYM_OK} Downloaded: ${dl_file}${NC}"
+            else
+                echo -e "${RED}${SYM_FAIL} Download failed${NC}"
+                exit 1
+            fi
+            ;;
+        tar|tar.gz|tarball)
+            echo -e "${SYM_ARROW} Downloading TAR.GZ source archive..."
+            dl_file=$(basename "$TARBALL_URL")
+            if curl -L --progress-bar "$TARBALL_URL" -o "$dl_file"; then
+                echo -e "${GREEN}${SYM_OK} Downloaded: ${dl_file}${NC}"
+            else
+                echo -e "${RED}${SYM_FAIL} Download failed${NC}"
+                exit 1
+            fi
+            ;;
+    esac
     exit 0
 fi
 
