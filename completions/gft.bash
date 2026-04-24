@@ -7,11 +7,15 @@ _gft() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    opts="--help --version --check-update --assets --detect --get --notes --json --quiet --no-color"
+    opts="--help --version --check-update --upgrade --assets --detect --get --install --releases --list --notes --json --quiet --pre --prerelease --source --checksum --verify --open --no-color --no-cache --clear-cache"
 
     case "$prev" in
         --get)
             # No completion for pattern argument
+            return 0
+            ;;
+        --source)
+            COMPREPLY=($(compgen -W "zip tar" -- "$cur"))
             return 0
             ;;
     esac
