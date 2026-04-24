@@ -50,6 +50,7 @@ show_help() {
     echo "  gft <user/repo> --assets         List release binary assets"
     echo "  gft <user/repo> --detect         Auto-detect best asset for your OS"
     echo "  gft <user/repo> --get <pattern>  Download asset matching pattern"
+    echo "  gft <user/repo> --install        Download, extract and install binary"
     echo "  gft <user/repo> --notes          Show release notes"
     echo "  gft <user/repo> --json           Output as JSON"
     echo "  gft <user/repo> -q               Output version number only"
@@ -697,6 +698,140 @@ download_asset() {
     fi
 }
 
+# ─── Install asset ───────────────────────────────────────────────────
+
+find_install_dir() {
+    if [ -w "/usr/local/bin" ]; then
+        echo "/usr/local/bin"
+    elif mkdir -p "$HOME/.local/bin" 2>/dev/null; then
+        echo "$HOME/.local/bin"
+    else
+        mkdir -p "$HOME/bin"
+        echo "$HOME/bin"
+    fi
+}
+
+install_asset() {
+    local pattern="${1:-}"
+
+    local assets
+    assets=$(get_assets) || true
+
+    if [[ -z "$assets" ]]; then
+        echo -e "${RED}${SYM_FAIL} No release assets found${NC}"
+        return 1
+    fi
+
+    local selected_path=""
+
+    if [[ -n "$pattern" ]]; then
+        selected_path=$(echo "$assets" | grep -i "$pattern" | head -1) || true
+    else
+        if [[ "${MODE_DETECT:-false}" != true ]]; then
+            detect_platform
+        fi
+        while IFS= read -r asset_path; do
+            local fname
+            fname=$(basename "$asset_path")
+            if [[ "$(highlight_asset "$fname")" == "match" ]]; then
+                selected_path="$asset_path"
+                break
+            fi
+        done <<< "$assets"
+    fi
+
+    if [[ -z "$selected_path" ]]; then
+        echo -e "${RED}${SYM_FAIL} No suitable asset found${NC}"
+        echo -e "  Use ${YELLOW}--detect${NC} to see what's available, or ${YELLOW}--get <pattern>${NC} to specify"
+        return 1
+    fi
+
+    local filename
+    filename=$(basename "$selected_path")
+    local url="https://github.com${selected_path}"
+
+    echo -e "${SYM_ARROW} Downloading ${CYAN}${filename}${NC}..."
+    if ! curl -L --progress-bar "$url" -o "$filename"; then
+        echo -e "${RED}${SYM_FAIL} Download failed${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}${SYM_OK} Downloaded: ${filename}${NC}"
+
+    if [[ "${MODE_VERIFY:-false}" == true ]]; then
+        local checksum_path
+        checksum_path=$(find_checksum_asset "$filename" "$assets")
+        if [[ -n "$checksum_path" ]]; then
+            verify_checksum "$filename" "$checksum_path" || { rm -f "$filename"; return 1; }
+        else
+            echo -e "${YELLOW}${SYM_FAIL} No checksum file found, proceeding without verification${NC}"
+        fi
+    fi
+
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmp_dir'" EXIT
+
+    local binary_path=""
+
+    case "$filename" in
+        *.tar.gz|*.tgz)
+            echo -e "${SYM_ARROW} Extracting archive..."
+            if ! tar xzf "$filename" -C "$tmp_dir" 2>/dev/null; then
+                echo -e "${RED}${SYM_FAIL} Extraction failed${NC}"
+                rm -f "$filename"; return 1
+            fi
+            ;;
+        *.zip)
+            echo -e "${SYM_ARROW} Extracting archive..."
+            if ! command -v unzip &>/dev/null; then
+                echo -e "${RED}${SYM_FAIL} unzip is required to extract .zip files${NC}"
+                rm -f "$filename"; return 1
+            fi
+            if ! unzip -q "$filename" -d "$tmp_dir" 2>/dev/null; then
+                echo -e "${RED}${SYM_FAIL} Extraction failed${NC}"
+                rm -f "$filename"; return 1
+            fi
+            ;;
+        *)
+            binary_path="$filename"
+            chmod +x "$binary_path"
+            ;;
+    esac
+
+    if [[ -z "$binary_path" ]]; then
+        local repo_name
+        repo_name=$(echo "$REPO" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')
+        binary_path=$(find "$tmp_dir" -type f -name "$repo_name" 2>/dev/null | head -1) || true
+        if [[ -z "$binary_path" ]]; then
+            binary_path=$(find "$tmp_dir" -type f -perm /111 \
+                ! -path "*/__MACOSX/*" ! -name "*.sh" ! -name "*.md" \
+                2>/dev/null | head -1) || true
+        fi
+        if [[ -z "$binary_path" ]]; then
+            echo -e "${RED}${SYM_FAIL} No executable binary found in archive${NC}"
+            rm -f "$filename"; return 1
+        fi
+    fi
+
+    local install_dir
+    install_dir=$(find_install_dir)
+    local binary_name
+    binary_name=$(basename "$binary_path")
+
+    echo -e "${SYM_ARROW} Installing ${CYAN}${binary_name}${NC} to ${CYAN}${install_dir}${NC}..."
+    if cp "$binary_path" "$install_dir/$binary_name" && chmod +x "$install_dir/$binary_name"; then
+        echo -e "${GREEN}${SYM_OK} Installed: ${install_dir}/${binary_name}${NC}"
+    else
+        echo -e "${RED}${SYM_FAIL} Installation failed (permission denied?)${NC}"
+        rm -f "$filename"; return 1
+    fi
+
+    rm -f "$filename"
+    trap - EXIT
+    rm -rf "$tmp_dir"
+}
+
 # ─── Version comparison ──────────────────────────────────────────────
 
 compare_releases() {
@@ -780,6 +915,7 @@ MODE_PRE=false
 MODE_LIST=false
 MODE_SOURCE=""
 MODE_VERIFY=false
+MODE_INSTALL=false
 NO_CACHE=false
 GET_PATTERN=""
 TAG_FROM=""
@@ -806,6 +942,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-cache)
             NO_CACHE=true
+            shift
+            ;;
+        --install)
+            MODE_INSTALL=true
             shift
             ;;
         --checksum|--verify)
@@ -960,6 +1100,11 @@ fi
 
 if [[ "$MODE_JSON" == true ]]; then
     output_json
+    exit 0
+fi
+
+if [[ "$MODE_INSTALL" == true ]]; then
+    install_asset "${GET_PATTERN:-}"
     exit 0
 fi
 
