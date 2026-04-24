@@ -61,6 +61,7 @@ show_help() {
     echo "  -h, --help         Show this help"
     echo "  -v, --version      Show version"
     echo "  --check-update     Check if a newer version is available"
+    echo "  --upgrade          Upgrade gft to the latest version"
     echo "  --pre              Include pre-releases when resolving latest"
     echo "  --checksum         Verify download checksum after --get"
     echo "  --open             Open release page in browser"
@@ -85,6 +86,7 @@ show_help() {
 # ─── Self-update check ───────────────────────────────────────────────
 
 GFT_REPO="20syldev/gft"
+CDN="https://cdn.sylvain.sh/bash"
 
 check_update() {
     echo -e "${SYM_ARROW} Checking for updates..."
@@ -107,9 +109,73 @@ check_update() {
     else
         echo -e "${YELLOW}${SYM_BULLET} Update available: ${CYAN}${VERSION}${NC} ${SYM_ARROW} ${GREEN}${latest}${NC}"
         echo
-        echo -e "  ${BLUE}Update:${NC}     ${CYAN}curl -fsSL https://cdn.sylvain.sh/bash/gft@latest/update.sh | sh${NC}"
+        echo -e "  ${BLUE}Upgrade:${NC}    ${CYAN}gft --upgrade${NC}"
         echo -e "  ${BLUE}Release:${NC}    https://github.com/$GFT_REPO/releases/tag/$latest"
     fi
+}
+
+self_upgrade() {
+    echo -e "${SYM_ARROW} Fetching latest version..."
+
+    local latest
+    latest=$(curl -fsSL --max-time 10 "${CDN}/gft@latest" 2>/dev/null \
+        | grep -o '"version": *"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    if [[ -z "$latest" ]]; then
+        echo -e "${RED}${SYM_FAIL} Could not fetch latest version${NC}"
+        return 1
+    fi
+
+    local current_clean="${VERSION#v}"
+    local latest_clean="${latest#v}"
+
+    if [[ "$current_clean" == "$latest_clean" ]]; then
+        echo -e "${GREEN}${SYM_OK} gft ${VERSION} is already up to date${NC}"
+        return 0
+    fi
+
+    echo -e "${SYM_ARROW} Upgrading ${CYAN}${VERSION}${NC} ${SYM_ARROW} ${GREEN}${latest}${NC}..."
+
+    local tmp_file
+    tmp_file=$(mktemp)
+
+    if curl -fsSL --max-time 30 "${CDN}/gft@${latest}/gft" -o "$tmp_file"; then
+        chmod +x "$tmp_file"
+        mv "$tmp_file" "$GFT_DIR/gft"
+        echo "$latest" > "$GFT_DIR/VERSION"
+        echo -e "${GREEN}${SYM_OK} gft upgraded to ${latest}${NC}"
+    else
+        rm -f "$tmp_file"
+        echo -e "${RED}${SYM_FAIL} Download failed${NC}"
+        return 1
+    fi
+
+    for comp_dir in /usr/share/bash-completion/completions "$HOME/.local/share/bash-completion/completions"; do
+        if [ -f "$comp_dir/gft" ]; then
+            curl -fsSL --max-time 10 "${CDN}/gft@${latest}/completions/gft.bash" \
+                -o "$comp_dir/gft" 2>/dev/null \
+                && echo -e "${GREEN}${SYM_OK} Bash completion updated${NC}"
+            break
+        fi
+    done
+
+    for comp_dir in /usr/share/zsh/vendor-completions "$HOME/.local/share/zsh/site-functions"; do
+        if [ -f "$comp_dir/_gft" ]; then
+            curl -fsSL --max-time 10 "${CDN}/gft@${latest}/completions/_gft" \
+                -o "$comp_dir/_gft" 2>/dev/null \
+                && echo -e "${GREEN}${SYM_OK} Zsh completion updated${NC}"
+            break
+        fi
+    done
+
+    for man_dir in /usr/local/share/man/man1 "$HOME/.local/share/man/man1"; do
+        if [ -f "$man_dir/gft.1" ]; then
+            curl -fsSL --max-time 10 "${CDN}/gft@${latest}/gft.1" \
+                -o "$man_dir/gft.1" 2>/dev/null \
+                && echo -e "${GREEN}${SYM_OK} Manpage updated${NC}"
+            break
+        fi
+    done
 }
 
 # ─── Cache utilities ─────────────────────────────────────────────────
@@ -975,6 +1041,11 @@ while [[ $# -gt 0 ]]; do
         --check-update)
             setup_colors
             check_update
+            exit $?
+            ;;
+        --upgrade)
+            setup_colors
+            self_upgrade
             exit $?
             ;;
         --no-color)
