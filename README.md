@@ -38,6 +38,9 @@ gft cli/cli
 # Get a specific version
 gft nodejs/node v22.0.0
 
+# List all releases
+gft cli/cli --releases
+
 # List all binary assets
 gft cli/cli --assets
 
@@ -46,6 +49,12 @@ gft cli/cli --detect
 
 # Download a specific asset
 gft cli/cli --get "linux-amd64.deb"
+
+# Download and verify checksum
+gft cli/cli --get "linux-amd64.deb" --checksum
+
+# Download, extract and install binary to PATH
+gft cli/cli --install
 
 # Get just the version number (for scripts)
 VERSION=$(gft nodejs/node -q)
@@ -58,6 +67,25 @@ gft cli/cli --json
 
 # Compare two releases
 gft cli/cli v2.40.0..v2.50.0
+
+# Include pre-releases when resolving latest
+gft cli/cli --pre
+
+# Open release page in browser
+gft cli/cli --open
+```
+
+### Self-management
+
+```bash
+# Upgrade gft to the latest version
+gft update
+
+# Uninstall gft
+gft delete
+
+# Check if a newer version is available
+gft --check-update
 ```
 
 ## Alias
@@ -70,15 +98,23 @@ gft cli/cli v2.40.0..v2.50.0
 - Binary asset listing (`--assets`)
 - Platform auto-detection (`--detect`) — finds the right binary for your OS/arch
 - Direct asset download by pattern (`--get`)
+- Checksum verification after download (`--checksum`)
+- Binary install to PATH (`--install`)
 - Release notes display (`--notes`)
 - JSON output for scripting (`--json`)
 - Quiet mode — just the version string (`-q`)
 - Version comparison (`v1.0..v2.0`)
-- Self-update check (`--check-update`)
+- All releases listing (`--releases`)
+- Pre-release support (`--pre`)
+- Open release page in browser (`--open`)
+- Source archive download (`--source zip|tar`)
+- Response cache with configurable TTL (`GFT_CACHE_TTL`)
+- Self-update (`gft update`) and uninstall (`gft delete`)
 - Works without GitHub authentication
 - Transparent `gh` CLI fallback for private repos (when available)
 - Respects `NO_COLOR` convention and pipe detection
 - Bash and Zsh completion
+- Manpage (`man gft`)
 
 ## How it works
 
@@ -90,27 +126,44 @@ gft scrapes GitHub release pages directly, so it:
 
 When `gh` CLI is installed and authenticated, gft uses it transparently as a fallback for private repositories and richer JSON output.
 
+## Commands
+
+| Command          | Description                          |
+| ---------------- | ------------------------------------ |
+| `gft update`     | Upgrade gft to the latest version    |
+| `gft delete`     | Uninstall gft                        |
+
 ## Options
 
-| Option              | Description                                    |
-| ------------------- | ---------------------------------------------- |
-| `-h, --help`        | Show help                                      |
-| `-v, --version`     | Show version                                   |
-| `--check-update`    | Check if a newer version of gft is available   |
-| `--assets`          | List release binary assets                     |
-| `--detect`          | Auto-detect OS/arch, highlight matching assets |
-| `--get <pattern>`   | Download asset matching pattern                |
-| `--notes`           | Show release notes                             |
-| `--json`            | Output as JSON                                 |
-| `-q, --quiet`       | Output version tag only                        |
-| `--no-color`        | Disable colored output                         |
+| Option                  | Description                                    |
+| ----------------------- | ---------------------------------------------- |
+| `-h, --help`            | Show help                                      |
+| `-v, --version`         | Show version                                   |
+| `--check-update`        | Check if a newer version of gft is available   |
+| `--upgrade`             | Upgrade gft to the latest version              |
+| `--releases, --list`    | List all available releases                    |
+| `--assets`              | List release binary assets                     |
+| `--detect`              | Auto-detect OS/arch, highlight matching assets |
+| `--get <pattern>`       | Download asset matching pattern                |
+| `--checksum, --verify`  | Verify SHA256 checksum after `--get`           |
+| `--install`             | Download, extract and install binary to PATH   |
+| `--notes`               | Show release notes                             |
+| `--json`                | Output as JSON                                 |
+| `-q, --quiet`           | Output version tag only                        |
+| `--pre, --prerelease`   | Include pre-releases when resolving latest     |
+| `--source zip\|tar`     | Download source archive non-interactively      |
+| `--open`                | Open release page in browser                   |
+| `--no-color`            | Disable colored output                         |
+| `--no-cache`            | Bypass response cache                          |
+| `--clear-cache`         | Clear all cached responses                     |
 
 ## Environment variables
 
-| Variable       | Description                                           |
-| -------------- | ----------------------------------------------------- |
-| `NO_COLOR`     | Set to any value to disable colors                    |
-| `GITHUB_TOKEN` | Set for higher API rate limits (5000/hour vs 60/hour) |
+| Variable        | Description                                           |
+| --------------- | ----------------------------------------------------- |
+| `NO_COLOR`      | Set to any value to disable colors                    |
+| `GITHUB_TOKEN`  | Set for higher API rate limits (5000/hour vs 60/hour) |
+| `GFT_CACHE_TTL` | Cache TTL in seconds (default: 300)                   |
 
 ## Output example
 
