@@ -57,6 +57,10 @@ show_help() {
     echo "  gft <user/repo> --source zip     Download source archive (non-interactive)"
     echo "  gft <user/repo> v1.0..v2.0       Compare two releases"
     echo
+    echo "Commands:"
+    echo "  gft update                       Upgrade gft to the latest version"
+    echo "  gft delete                       Uninstall gft"
+    echo
     echo "Options:"
     echo "  -h, --help         Show this help"
     echo "  -v, --version      Show version"
@@ -176,6 +180,73 @@ self_upgrade() {
             break
         fi
     done
+}
+
+self_uninstall() {
+    echo -e "${BLUE}gft uninstaller${NC}\n"
+
+    if [[ ! -d "$GFT_DIR" ]]; then
+        echo -e "${YELLOW}gft is not installed.${NC}"
+        return 0
+    fi
+
+    echo -e "${RED}This will remove gft.${NC}"
+    printf "${CYAN}Continue? [y/N]:${NC} "
+    read -r CONFIRM < /dev/tty
+    case "$CONFIRM" in
+        y|Y|yes|YES|oui|OUI) ;;
+        *) echo -e "${BLUE}Cancelled.${NC}"; return 0 ;;
+    esac
+
+    echo
+
+    for bin_dir in /usr/local/bin "$HOME/.local/bin" "$HOME/bin"; do
+        if [[ -L "$bin_dir/gft" ]]; then
+            rm -f "$bin_dir/gft"
+            echo -e "${GREEN}${SYM_OK} Removed symlink:${NC} $bin_dir/gft"
+        fi
+        if [[ -L "$bin_dir/gfv" ]]; then
+            rm -f "$bin_dir/gfv"
+            echo -e "${GREEN}${SYM_OK} Removed symlink:${NC} $bin_dir/gfv"
+        fi
+    done
+
+    rm -f "$GFT_DIR/gft"
+    rm -f "$GFT_DIR/VERSION"
+    rm -rf "$GFT_DIR/cache"
+    rmdir "$GFT_DIR" 2>/dev/null && echo -e "${GREEN}${SYM_OK} Removed:${NC} $GFT_DIR"
+
+    for comp in /usr/share/bash-completion/completions/gft "$HOME/.local/share/bash-completion/completions/gft"; do
+        if [[ -f "$comp" ]]; then
+            rm -f "$comp"
+            echo -e "${GREEN}${SYM_OK} Removed:${NC} $comp"
+        fi
+    done
+
+    for comp in /usr/share/zsh/vendor-completions/_gft "$HOME/.local/share/zsh/site-functions/_gft"; do
+        if [[ -f "$comp" ]]; then
+            rm -f "$comp"
+            echo -e "${GREEN}${SYM_OK} Removed:${NC} $comp"
+        fi
+    done
+
+    for man in /usr/local/share/man/man1/gft.1 "$HOME/.local/share/man/man1/gft.1"; do
+        if [[ -f "$man" ]]; then
+            rm -f "$man"
+            echo -e "${GREEN}${SYM_OK} Removed:${NC} $man"
+        fi
+    done
+
+    for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc"; do
+        if [[ -f "$rc" ]] && grep -q "# Added by gft installer" "$rc"; then
+            sed -i '/# Added by gft installer/d;/export PATH=.*gft/d' "$rc"
+            echo -e "${GREEN}${SYM_OK} Cleaned:${NC} $rc"
+        fi
+    done
+
+    echo
+    echo -e "${GREEN}${SYM_OK} Done!${NC} gft has been uninstalled."
+    echo -e "${YELLOW}Reload your shell to apply changes.${NC}"
 }
 
 # ─── Cache utilities ─────────────────────────────────────────────────
@@ -1043,9 +1114,14 @@ while [[ $# -gt 0 ]]; do
             check_update
             exit $?
             ;;
-        --upgrade)
+        --upgrade|update)
             setup_colors
             self_upgrade
+            exit $?
+            ;;
+        delete|uninstall)
+            setup_colors
+            self_uninstall
             exit $?
             ;;
         --no-color)
