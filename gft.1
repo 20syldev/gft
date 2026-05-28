@@ -112,6 +112,51 @@ Bypass the local response cache for this invocation.
 .TP
 .B \-\-clear\-cache
 Clear all cached responses and exit.
+.SH COMMANDS
+.TP
+.B gft update
+Upgrade gft to the latest version in-place. Alias:
+.BR \-\-upgrade .
+.TP
+.B gft delete
+Uninstall gft and remove all associated files. Alias:
+.BR uninstall .
+.TP
+.BI "gft stash " "[action]"
+Manage git stashes in the repository at the current directory.
+Available actions:
+.RS
+.TP
+.B list
+List all stashes (default when no action is given).
+.TP
+.BI "show " "[n]"
+Show the diff of stash
+.I n
+(default: 0).
+.TP
+.BI "drop " "n"
+Drop stash
+.IR n .
+Asks for confirmation unless
+.B \-y
+is passed.
+.TP
+.B clean
+Delete all stashes. Alias:
+.BR clear .
+Asks for confirmation unless
+.B \-y
+is passed.
+.RE
+.RS
+.PP
+Option
+.B \-y
+/
+.B \-\-yes
+skips confirmation prompts (useful in scripts).
+.RE
 .SH ENVIRONMENT
 .TP
 .B NO_COLOR
@@ -182,6 +227,18 @@ Compare two releases:
 .TP
 Open release page in browser:
 .B gft cli/cli --open
+.TP
+List git stashes in the current repo:
+.B gft stash list
+.TP
+Show the diff of stash 1:
+.B gft stash show 1
+.TP
+Drop stash 0 without confirmation:
+.B gft stash drop 0 -y
+.TP
+Delete all stashes:
+.B gft stash clean
 .SH SEE ALSO
 .BR curl (1),
 .BR gh (1)

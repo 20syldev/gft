@@ -60,6 +60,7 @@ show_help() {
     echo "Commands:"
     echo "  gft update                       Upgrade gft to the latest version"
     echo "  gft delete                       Uninstall gft"
+    echo "  gft stash [action]               Manage git stashes (list, show, drop, clean)"
     echo
     echo "Options:"
     echo "  -h, --help         Show this help"
@@ -1077,6 +1078,181 @@ prompt_download() {
     fi
 }
 
+# ─── Git stash management ────────────────────────────────────────────
+
+STASH_YES=false
+
+stash_require_repo() {
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        echo -e "${RED}${SYM_FAIL} Not a git repository${NC}"
+        echo -e "  Run ${YELLOW}gft stash${NC} from inside a git repository"
+        return 1
+    fi
+}
+
+stash_list() {
+    stash_require_repo || return 1
+
+    local stashes
+    stashes=$(git stash list --format='%gd%x09%gs' 2>/dev/null) || true
+
+    if [[ -z "$stashes" ]]; then
+        echo -e "${YELLOW}${SYM_FAIL} No stashes found${NC}"
+        return 0
+    fi
+
+    echo
+    echo -e "${YELLOW}${SYM_BULLET} Stashes${NC}"
+    echo
+
+    local total n=0 ref subj
+    total=$(echo "$stashes" | wc -l)
+
+    while IFS=$'\t' read -r ref subj; do
+        [[ -z "$ref" ]] && continue
+        ((n++)) || true
+        if [[ $n -eq $total ]]; then
+            echo -e "  ${SYM_CORNER}${SYM_DASH} ${CYAN}${ref}${NC}  ${subj}"
+        else
+            echo -e "  ${SYM_TEE}${SYM_DASH} ${CYAN}${ref}${NC}  ${subj}"
+        fi
+    done <<< "$stashes"
+
+    echo
+    echo -e "  ${GREEN}${total} stash(es)${NC}"
+}
+
+stash_show() {
+    stash_require_repo || return 1
+
+    local n="${1:-0}"
+    local ref="stash@{${n}}"
+
+    if ! git rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+        echo -e "${RED}${SYM_FAIL} No such stash: ${ref}${NC}"
+        return 1
+    fi
+
+    git stash show -p "$ref"
+}
+
+stash_drop() {
+    stash_require_repo || return 1
+
+    local n="${1:-}"
+    if [[ -z "$n" ]]; then
+        echo -e "${RED}${SYM_FAIL} Usage: gft stash drop <index>${NC}"
+        return 1
+    fi
+
+    local ref="stash@{${n}}"
+
+    if ! git rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+        echo -e "${RED}${SYM_FAIL} No such stash: ${ref}${NC}"
+        return 1
+    fi
+
+    if [[ "$STASH_YES" != true ]]; then
+        printf "${CYAN}Drop ${ref}? [y/N]:${NC} "
+        read -r reply < /dev/tty
+        case "$reply" in
+            y|Y|yes|YES|oui|OUI) ;;
+            *) echo -e "${BLUE}Cancelled.${NC}"; return 0 ;;
+        esac
+    fi
+
+    if git stash drop "$ref"; then
+        echo -e "${GREEN}${SYM_OK} Dropped ${ref}${NC}"
+    else
+        echo -e "${RED}${SYM_FAIL} Failed to drop ${ref}${NC}"
+        return 1
+    fi
+}
+
+stash_clean() {
+    stash_require_repo || return 1
+
+    local count
+    count=$(git stash list 2>/dev/null | wc -l | tr -d ' ')
+
+    if [[ "$count" -eq 0 ]]; then
+        echo -e "${YELLOW}${SYM_FAIL} No stashes found${NC}"
+        return 0
+    fi
+
+    if [[ "$STASH_YES" != true ]]; then
+        echo -e "${RED}This will delete all ${count} stash(es).${NC}"
+        printf "${CYAN}Continue? [y/N]:${NC} "
+        read -r reply < /dev/tty
+        case "$reply" in
+            y|Y|yes|YES|oui|OUI) ;;
+            *) echo -e "${BLUE}Cancelled.${NC}"; return 0 ;;
+        esac
+    fi
+
+    if git stash clear; then
+        echo -e "${GREEN}${SYM_OK} Cleared ${count} stash(es)${NC}"
+    else
+        echo -e "${RED}${SYM_FAIL} Failed to clear stashes${NC}"
+        return 1
+    fi
+}
+
+stash_help() {
+    echo "Usage: gft stash [action] [options]"
+    echo
+    echo "Manage git stashes in the current repository."
+    echo
+    echo "Actions:"
+    echo "  list (default)  List stashes in the current repo"
+    echo "  show [n]        Show the diff of stash n (default: 0)"
+    echo "  drop <n>        Drop stash n"
+    echo "  clean           Delete all stashes (alias: clear)"
+    echo
+    echo "Options:"
+    echo "  -y, --yes       Skip confirmation prompts"
+    echo
+    echo "Aliases: ls=list  diff=show  rm=drop"
+}
+
+cmd_stash() {
+    local action="${1:-list}"
+    shift || true
+
+    STASH_YES=false
+    local args=()
+    for a in "$@"; do
+        case "$a" in
+            -y|--yes) STASH_YES=true ;;
+            *) args+=("$a") ;;
+        esac
+    done
+
+    case "$action" in
+        list|ls)
+            stash_list
+            ;;
+        show|diff)
+            stash_show "${args[0]:-0}"
+            ;;
+        drop|rm)
+            stash_drop "${args[0]:-}"
+            ;;
+        clean|clear)
+            stash_clean
+            ;;
+        -h|--help|help)
+            stash_help
+            ;;
+        *)
+            echo -e "${RED}${SYM_FAIL} Unknown stash action: ${action}${NC}"
+            echo
+            stash_help
+            return 1
+            ;;
+    esac
+}
+
 # ─── Argument parsing ────────────────────────────────────────────────
 
 REPO=""
@@ -1122,6 +1298,12 @@ while [[ $# -gt 0 ]]; do
         delete|uninstall)
             setup_colors
             self_uninstall
+            exit $?
+            ;;
+        stash)
+            setup_colors
+            shift
+            cmd_stash "$@"
             exit $?
             ;;
         --no-color)
