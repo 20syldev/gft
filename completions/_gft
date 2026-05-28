@@ -9,12 +9,18 @@ _gft() {
         'update:Upgrade gft to the latest version'
         'delete:Uninstall gft'
         'uninstall:Uninstall gft'
+        'stash:Manage git stashes in the current repo'
     )
 
     if (( CURRENT == 2 )); then
         _alternative \
             'subcommands:subcommand:compadd -a subcommands' \
             'repos:repository (user/repo):'
+        return
+    fi
+
+    if (( CURRENT == 3 )) && [[ "${words[2]}" == stash ]]; then
+        _values 'stash action' list ls show diff drop rm clean clear
         return
     fi
 

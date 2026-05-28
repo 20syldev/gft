@@ -8,7 +8,7 @@ _gft() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     opts="--help --version --check-update --upgrade --assets --detect --get --install --releases --list --notes --json --quiet --pre --prerelease --source --checksum --verify --open --no-color --no-cache --clear-cache"
-    cmds="update delete uninstall"
+    cmds="update delete uninstall stash"
 
     case "$prev" in
         --get)
@@ -17,6 +17,10 @@ _gft() {
             ;;
         --source)
             COMPREPLY=($(compgen -W "zip tar" -- "$cur"))
+            return 0
+            ;;
+        stash)
+            COMPREPLY=($(compgen -W "list ls show diff drop rm clean clear" -- "$cur"))
             return 0
             ;;
     esac
