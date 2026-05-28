@@ -88,6 +88,22 @@ gft delete
 gft --check-update
 ```
 
+### Stash management
+
+```bash
+# List stashes in the current repo
+gft stash list
+
+# Show the diff of stash 1
+gft stash show 1
+
+# Drop stash 0 (with confirmation)
+gft stash drop 0
+
+# Delete all stashes without confirmation
+gft stash clean -y
+```
+
 ## Alias
 
 `gfv` is available as an alias for `gft`.
@@ -110,6 +126,7 @@ gft --check-update
 - Source archive download (`--source zip|tar`)
 - Response cache with configurable TTL (`GFT_CACHE_TTL`)
 - Self-update (`gft update`) and uninstall (`gft delete`)
+- Git stash management (`gft stash list|show|drop|clean`)
 - Works without GitHub authentication
 - Transparent `gh` CLI fallback for private repos (when available)
 - Respects `NO_COLOR` convention and pipe detection
@@ -128,10 +145,11 @@ When `gh` CLI is installed and authenticated, gft uses it transparently as a fal
 
 ## Commands
 
-| Command          | Description                          |
-| ---------------- | ------------------------------------ |
-| `gft update`     | Upgrade gft to the latest version    |
-| `gft delete`     | Uninstall gft                        |
+| Command                  | Description                          |
+| ------------------------ | ------------------------------------ |
+| `gft update`             | Upgrade gft to the latest version    |
+| `gft delete`             | Uninstall gft                        |
+| `gft stash [action]`     | Manage git stashes (list, show, drop, clean) |
 
 ## Options
 
