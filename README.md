@@ -129,7 +129,9 @@ gft stash clean -y
 - Git stash management (`gft stash list|show|drop|clean`)
 - Works without GitHub authentication
 - Transparent `gh` CLI fallback for private repos (when available)
+- Loading spinner on network operations (`GFT_NO_SPINNER` to disable)
 - Respects `NO_COLOR` convention and pipe detection
+- Automatic ASCII fallback on non-UTF-8 terminals (`GFT_ASCII` to force)
 - Bash and Zsh completion
 - Manpage (`man gft`)
 
@@ -177,11 +179,13 @@ When `gh` CLI is installed and authenticated, gft uses it transparently as a fal
 
 ## Environment variables
 
-| Variable        | Description                                           |
-| --------------- | ----------------------------------------------------- |
-| `NO_COLOR`      | Set to any value to disable colors                    |
-| `GITHUB_TOKEN`  | Set for higher API rate limits (5000/hour vs 60/hour) |
-| `GFT_CACHE_TTL` | Cache TTL in seconds (default: 300)                   |
+| Variable         | Description                                           |
+| ---------------- | ----------------------------------------------------- |
+| `NO_COLOR`       | Set to any value to disable colors                    |
+| `GITHUB_TOKEN`   | Set for higher API rate limits (5000/hour vs 60/hour) |
+| `GFT_CACHE_TTL`  | Cache TTL in seconds (default: 300)                   |
+| `GFT_NO_SPINNER` | Set to any value to disable the loading spinner       |
+| `GFT_ASCII`      | Set to any value to force ASCII-only symbols          |
 
 ## Output example
 

@@ -170,6 +170,16 @@ requests, increasing the rate limit from 60 to 5000 requests per hour.
 Cache time-to-live in seconds (default: 300). Responses are cached in
 .I ~/.config/gft/cache/
 to avoid redundant network requests.
+.TP
+.B GFT_NO_SPINNER
+When set to any value, disables the loading spinner shown during network
+operations. The spinner is written to standard error and is already
+suppressed automatically when standard error is not a terminal.
+.TP
+.B GFT_ASCII
+When set to any value, forces ASCII-only symbols instead of the Unicode
+status and box-drawing glyphs. This fallback is applied automatically
+when the locale does not advertise a UTF-8 character set.
 .SH FILES
 .TP
 .I ~/.config/gft/
