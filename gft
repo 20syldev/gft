@@ -39,6 +39,50 @@ setup_colors() {
     fi
 }
 
+# ─── Spinner ─────────────────────────────────────────────────────────
+
+# Spinner frames for animation.
+SPIN_FRAMES=(
+    "\xe2\xa0\x8b" "\xe2\xa0\x99" "\xe2\xa0\xb9" "\xe2\xa0\xb8" "\xe2\xa0\xbc"
+    "\xe2\xa0\xb4" "\xe2\xa0\xa6" "\xe2\xa0\xa7" "\xe2\xa0\x87" "\xe2\xa0\x8f"
+)
+SPIN_DELAY="0.08"
+SPIN_PID=""
+
+spinner_supported() {
+    [[ -z "${GFT_NO_SPINNER:-}" ]] && [[ -t 2 ]]
+}
+
+spinner_start() {
+    spinner_supported || return 0
+    local msg="$1"
+    printf '\033[?25l' >&2
+    (
+        trap 'exit 0' TERM
+        local i=0
+        while :; do
+            printf "\r${CYAN}%b${NC} %s" \
+                "${SPIN_FRAMES[i % ${#SPIN_FRAMES[@]}]}" "$msg" >&2
+            i=$(( i + 1 ))
+            sleep "$SPIN_DELAY"
+        done
+    ) &
+    SPIN_PID=$!
+}
+
+spinner_stop() {
+    if [[ -n "$SPIN_PID" ]]; then
+        kill "$SPIN_PID" 2>/dev/null || true
+        wait "$SPIN_PID" 2>/dev/null || true
+        SPIN_PID=""
+    fi
+    spinner_supported || return 0
+    printf '\r\033[K\033[?25h' >&2
+}
+
+trap 'spinner_stop; exit 130' INT
+trap 'spinner_stop; exit 143' TERM
+
 # ─── Help ────────────────────────────────────────────────────────────
 
 show_help() {
@@ -78,6 +122,7 @@ show_help() {
     echo "  NO_COLOR           Set to disable colors"
     echo "  GITHUB_TOKEN       Set for higher API rate limits"
     echo "  GFT_CACHE_TTL      Cache TTL in seconds (default: 300)"
+    echo "  GFT_NO_SPINNER     Set to disable the loading spinner"
     echo
     echo "Examples:"
     echo "  gft cli/cli                      Latest release of GitHub CLI"
@@ -94,11 +139,12 @@ GFT_REPO="20syldev/gft"
 CDN="https://cdn.sylvain.sh/bash"
 
 check_update() {
-    echo -e "${SYM_ARROW} Checking for updates..."
+    spinner_start "Checking for updates..."
 
     local latest
     latest=$(curl -sL --max-time 5 "https://github.com/$GFT_REPO/releases" 2>/dev/null \
         | grep -o 'href="[^"]*/releases/tag/[^"]*"' | head -1 | sed 's/.*\/tag\///; s/".*//')
+    spinner_stop
 
     if [[ -z "$latest" ]]; then
         echo -e "${YELLOW}${SYM_FAIL} Could not check for updates${NC}"
@@ -120,11 +166,12 @@ check_update() {
 }
 
 self_upgrade() {
-    echo -e "${SYM_ARROW} Fetching latest version..."
+    spinner_start "Fetching latest version..."
 
     local latest
     latest=$(curl -fsSL --max-time 10 "${CDN}/gft@latest" 2>/dev/null \
         | grep -o '"version": *"[^"]*"' | head -1 | cut -d'"' -f4)
+    spinner_stop
 
     if [[ -z "$latest" ]]; then
         echo -e "${RED}${SYM_FAIL} Could not fetch latest version${NC}"
@@ -144,12 +191,15 @@ self_upgrade() {
     local tmp_file
     tmp_file=$(mktemp)
 
+    spinner_start "Downloading gft ${latest}..."
     if curl -fsSL --max-time 30 "${CDN}/gft@${latest}/gft" -o "$tmp_file"; then
+        spinner_stop
         chmod +x "$tmp_file"
         mv "$tmp_file" "$GFT_DIR/gft"
         echo "$latest" > "$GFT_DIR/VERSION"
         echo -e "${GREEN}${SYM_OK} gft upgraded to ${latest}${NC}"
     else
+        spinner_stop
         rm -f "$tmp_file"
         echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         return 1
@@ -280,7 +330,9 @@ cache_fetch() {
     fi
 
     local content
+    spinner_start "Fetching ${url#https://}..."
     content=$(curl -sL --max-time 10 "$url" 2>/dev/null)
+    spinner_stop
 
     if [[ "${NO_CACHE:-false}" != true ]] && [[ -n "$content" ]]; then
         mkdir -p "$CACHE_DIR"
@@ -298,16 +350,26 @@ fetch_page() {
 
 fetch_api() {
     local endpoint="$1"
+    local out
+
+    spinner_start "Querying GitHub API..."
     # Try gh cli first if available and authenticated
     if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
-        gh api "$endpoint" 2>/dev/null && return 0
+        if out=$(gh api "$endpoint" 2>/dev/null); then
+            spinner_stop
+            printf '%s' "$out"
+            return 0
+        fi
     fi
     # Fallback to curl with optional token
     local headers=()
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
         headers=(-H "Authorization: token $GITHUB_TOKEN")
     fi
-    curl -sL --max-time 10 "${headers[@]}" "https://api.github.com/$endpoint" 2>/dev/null
+    out=$(curl -sL --max-time 10 "${headers[@]}" \
+        "https://api.github.com/$endpoint" 2>/dev/null) || true
+    spinner_stop
+    printf '%s' "$out"
 }
 
 # ─── Repository checks ──────────────────────────────────────────────
@@ -316,7 +378,9 @@ check_repository_exists() {
     local repo_url="https://github.com/$REPO"
     local response
 
+    spinner_start "Checking repository..."
     response=$(curl -s -o /dev/null -w "%{http_code}" "$repo_url" 2>/dev/null)
+    spinner_stop
 
     if [ "$response" = "200" ]; then
         return 0
