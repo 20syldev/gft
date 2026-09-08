@@ -24,6 +24,7 @@ NC='\033[0m'
 SYM_OK="\xe2\x9c\x93"       # ✓
 SYM_FAIL="\xe2\x9c\x97"     # ✗
 SYM_ARROW="\xe2\x86\x92"    # →
+SYM_ARROW_L="\xe2\x86\x90"  # ←
 SYM_BULLET=">"              # section header
 SYM_DOT="-"                 # info line
 SYM_DASH="\xe2\x94\x80"     # ─
@@ -80,6 +81,31 @@ spinner_stop() {
     printf '\r\033[K\033[?25h' >&2
 }
 
+# ─── Symbol fallback ────────────────────────────────────────
+
+# Expand a SYM_* escape sequence to the bytes it stands for.
+sym() { printf '%b' "$1"; }
+
+# Set up symbols based on terminal capabilities and environment variables.
+setup_symbols() {
+    local charset="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+    if [[ -z "${GFT_ASCII:-}" ]] && [[ "$charset" =~ [Uu][Tt][Ff]-?8 ]]; then
+        return 0
+    fi
+    SYM_OK="[ok]"
+    SYM_FAIL="[!]"
+    SYM_ARROW="->"
+    SYM_ARROW_L="<-"
+    SYM_DASH="-"
+    SYM_TEE="|"
+    SYM_CORNER='`'
+    SYM_VLINE="|"
+    SPIN_FRAMES=("-" "\\\\" "|" "/")
+}
+
+# Depends only on the environment, so it can settle once at startup.
+setup_symbols
+
 trap 'spinner_stop; exit 130' INT
 trap 'spinner_stop; exit 143' TERM
 
@@ -123,6 +149,7 @@ show_help() {
     echo "  GITHUB_TOKEN       Set for higher API rate limits"
     echo "  GFT_CACHE_TTL      Cache TTL in seconds (default: 300)"
     echo "  GFT_NO_SPINNER     Set to disable the loading spinner"
+    echo "  GFT_ASCII          Set to force ASCII-only symbols"
     echo
     echo "Examples:"
     echo "  gft cli/cli                      Latest release of GitHub CLI"
@@ -560,7 +587,7 @@ list_assets() {
             local match
             match=$(highlight_asset "$filename")
             if [[ "$match" == "match" ]]; then
-                printf "  ${GREEN}${SYM_OK} %2d) %s  ${CYAN}<- recommended${NC}\n" "$count" "$filename"
+                printf "  ${GREEN}${SYM_OK} %2d) %s  ${CYAN}${SYM_ARROW_L} recommended${NC}\n" "$count" "$filename"
             else
                 printf "  %4d) %s\n" "$count" "$filename"
             fi
@@ -683,7 +710,7 @@ show_release_notes() {
             echo
             echo -e "${YELLOW}${SYM_BULLET} Release Notes ($TAG)${NC}"
             local separator
-            separator=$(printf '%0.s─' {1..40})
+            separator=$(printf "%0.s$(sym "$SYM_DASH")" {1..40})
             echo -e "${CYAN}${separator}${NC}"
             echo "$notes" | head -80
             echo -e "${CYAN}${separator}${NC}"
@@ -718,7 +745,7 @@ show_release_notes() {
     echo
     echo -e "${YELLOW}${SYM_BULLET} Release Notes ($TAG)${NC}"
     local separator
-    separator=$(printf '%0.s─' {1..40})
+    separator=$(printf "%0.s$(sym "$SYM_DASH")" {1..40})
     echo -e "${CYAN}${separator}${NC}"
     echo "$notes"
     echo -e "${CYAN}${separator}${NC}"
