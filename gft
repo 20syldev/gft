@@ -6,6 +6,9 @@
 
 set -e
 
+# Bash 5.2 reads "&" in a ${var//pattern/replacement} as the matched text; keep it literal.
+shopt -u patsub_replacement 2>/dev/null || true
+
 GFT_DIR="$HOME/.config/gft"
 CACHE_DIR="$GFT_DIR/cache"
 CACHE_TTL="${GFT_CACHE_TTL:-300}"
@@ -140,7 +143,7 @@ show_help() {
     echo "  --upgrade          Upgrade gft to the latest version"
     echo "  --pre              Include pre-releases when resolving latest"
     echo "  --checksum         Verify download checksum after --get"
-    echo "  --dir <folder>     Write downloads (--get, --source) and --install binary there"
+    echo "  --dir <folder>     Write downloads (--get, --source, prompt) and --install binary there"
     echo "  --open             Open release page in browser"
     echo "  --no-color         Disable colors"
     echo "  --no-cache         Bypass response cache"
@@ -619,8 +622,10 @@ releases_from_api() {
     local tag name published prerelease
     while IFS=$'\037' read -r tag name published prerelease; do
         [[ -z "$tag" ]] && continue
-        printf '%s\037%s\037%s\037%s\n' "$(tsv_unescape "$tag")" "$(tsv_unescape "$name")" \
-            "$published" "$prerelease"
+        tag=$(tsv_unescape "$tag")
+        name=$(trim "$(tsv_unescape "$name")")
+        [[ -n "$name" ]] || name=$(trim "$(api_tag_subject "$tag")")
+        printf '%s\037%s\037%s\037%s\n' "$tag" "$name" "$published" "$prerelease"
     done <<< "$rows"
 }
 
@@ -654,7 +659,7 @@ releases_from_web() {
     local tag name published prerelease
     while IFS=$'\037' read -r tag name published prerelease; do
         [[ -z "$tag" ]] && continue
-        printf '%s\037%s\037%s\037%s\n' "$(url_decode "$tag")" "$(html_decode "$name")" \
+        printf '%s\037%s\037%s\037%s\n' "$(url_decode "$tag")" "$(trim "$(html_decode "$name")")" \
             "$published" "$prerelease"
     done <<< "$rows"
 }
@@ -878,8 +883,25 @@ html_decode() {
 }
 
 url_decode() {
-    local s="${1//+/ }"
-    printf '%b' "${s//%/\\x}"
+    printf '%b' "${1//%/\\x}"
+}
+
+trim() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    printf '%s' "$s"
+}
+
+# Title GitHub shows for an untitled release (unsigned annotated tag subject).
+api_tag_subject() {
+    local sha
+    sha=$(gh api "repos/$REPO/git/ref/tags/$1" \
+        --jq 'select(.object.type == "tag") | .object.sha' 2>/dev/null) || return 0
+    [[ -n "$sha" ]] || return 0
+    gh api "repos/$REPO/git/tags/$sha" \
+        --jq 'select(.verification.reason == "unsigned") | .message | split("\n")[0]' \
+        2>/dev/null || true
 }
 
 gh_ready() {
@@ -917,7 +939,8 @@ release_from_api() {
     while IFS=$'\037' read -r name url digest; do
         if $first; then
             published="$url" prerelease="$digest"
-            R_NAME=$(tsv_unescape "$name")
+            R_NAME=$(trim "$(tsv_unescape "$name")")
+            [[ -n "$R_NAME" ]] || R_NAME=$(trim "$(api_tag_subject "$TAG")")
             R_PUBLISHED="$published"
             R_PRERELEASE="$prerelease"
             first=false
@@ -946,7 +969,7 @@ release_from_web() {
         return 1
     fi
 
-    R_NAME=$(html_decode "$title")
+    R_NAME=$(trim "$(html_decode "$title")")
     # The first ISO datetime on a release page is its publication date.
     R_PUBLISHED=$(printf '%s' "$page" \
         | grep -oE '<relative-time[^>]*datetime="[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z"' \
@@ -975,7 +998,8 @@ release_from_web() {
     while IFS=$'\037' read -r path digest; do
         [[ -z "$path" ]] && continue
         name=$(url_decode "${path##*/}")
-        entries+=("$name"$'\037'"https://github.com$path"$'\037'"$digest")
+        # The API percent-encodes "+" in download URLs; the page keeps it raw in file names.
+        entries+=("$name"$'\037'"https://github.com${path//+/%2B}"$'\037'"$digest")
     done <<< "$rows"
 
     # Sort by decoded name, as the API path does.
@@ -994,6 +1018,11 @@ output_json() {
     if [[ "${NO_RELEASE:-false}" == true ]]; then
         echo "gft: no release found for $REPO" >&2
         exit 1
+    fi
+
+    if [[ "$TAG" == *%* ]]; then
+        TAG=$(url_decode "$TAG")
+        build_urls
     fi
 
     if ! release_from_api && ! release_from_web; then
@@ -1102,7 +1131,8 @@ verify_checksum() {
     fi
 
     local actual_hash
-    actual_hash=$(eval "$cmd" "$file" | awk '{print $1}')
+    # $cmd is unquoted on purpose ("shasum -a 256"); the path stays one word.
+    actual_hash=$($cmd "$file" | awk '{print $1}')
 
     if [[ "$actual_hash" == "$expected_hash" ]]; then
         echo -e "${GREEN}${SYM_OK} Checksum verified${NC}"
@@ -1662,6 +1692,17 @@ add_positional() {
     fi
 }
 
+# With --json, usage errors from the loop below must not reach stdout either.
+for arg in "$@"; do
+    [[ "$arg" == "--" ]] && break
+    if [[ "$arg" == "--json" ]]; then
+        MSG_FD=2
+        NO_COLOR=1
+        setup_colors
+        break
+    fi
+done
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --)
@@ -1713,13 +1754,13 @@ while [[ $# -gt 0 ]]; do
         --source)
             MODE_SOURCE="${2:-}"
             if [[ -z "$MODE_SOURCE" ]]; then
-                echo -e "${RED}${SYM_FAIL} --source requires an argument: zip or tar${NC}"
+                echo -e "${RED}${SYM_FAIL} --source requires an argument: zip or tar${NC}" >&"$MSG_FD"
                 exit 1
             fi
             case "$MODE_SOURCE" in
                 zip|tar|tar.gz|tarball) ;;
                 *)
-                    echo -e "${RED}${SYM_FAIL} --source argument must be 'zip' or 'tar'${NC}"
+                    echo -e "${RED}${SYM_FAIL} --source argument must be 'zip' or 'tar'${NC}" >&"$MSG_FD"
                     exit 1
                     ;;
             esac
@@ -1761,7 +1802,7 @@ while [[ $# -gt 0 ]]; do
             MODE_GET=true
             GET_PATTERN="${2:-}"
             if [[ -z "$GET_PATTERN" ]]; then
-                echo -e "${RED}${SYM_FAIL} --get requires a pattern argument${NC}"
+                echo -e "${RED}${SYM_FAIL} --get requires a pattern argument${NC}" >&"$MSG_FD"
                 exit 1
             fi
             shift 2
@@ -1769,7 +1810,7 @@ while [[ $# -gt 0 ]]; do
         --dir)
             DL_DIR="${2:-}"
             if [[ -z "$DL_DIR" ]]; then
-                echo -e "${RED}${SYM_FAIL} --dir requires a folder argument${NC}"
+                echo -e "${RED}${SYM_FAIL} --dir requires a folder argument${NC}" >&"$MSG_FD"
                 exit 1
             fi
             shift 2
@@ -1784,8 +1825,8 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -*)
-            echo -e "${RED}${SYM_FAIL} Unknown option: $1${NC}"
-            show_help
+            echo -e "${RED}${SYM_FAIL} Unknown option: $1${NC}" >&"$MSG_FD"
+            show_help >&"$MSG_FD"
             exit 1
             ;;
         *)
