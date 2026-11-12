@@ -5,6 +5,13 @@
 
 set -e
 
+# Refuse to run over a gft installed by dpkg.
+if command -v dpkg-query >/dev/null 2>&1 \
+    && dpkg-query -W -f='${Status}' gft 2>/dev/null | grep -q "install ok installed"; then
+    printf "%s\n" "gft is installed through apt. To upgrade it: sudo apt update && sudo apt upgrade gft"
+    exit 1
+fi
+
 CDN="https://cdn.sylvain.sh/bash"
 VERSION="$(curl -fsSL "${CDN}/gft@latest" | grep -o '"version": *"[^"]*"' | head -1 | cut -d'"' -f4)"
 if [ -z "$VERSION" ]; then
