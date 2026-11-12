@@ -1,0 +1,44 @@
+name: Release
+
+on:
+    push:
+        tags: ["[0-9]*.[0-9]*.[0-9]*"]
+
+permissions:
+    contents: write
+
+jobs:
+    release:
+        name: Draft release
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+            - name: Check the version
+              run: test "$(cat VERSION)" = "$GITHUB_REF_NAME"
+            - name: Install the tools
+              run: |
+                  sudo apt-get update && sudo apt-get install -y lintian minisign
+                  curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_Linux_x86_64.tar.gz |
+                      sudo tar -xz -C /usr/local/bin nfpm
+            - name: Build the package
+              run: packaging/build-deb.sh --out dist
+            - name: Sign the checksums
+              env:
+                  MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+                  MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+              run: |
+                  cd dist
+                  sums="gft_${GITHUB_REF_NAME}_checksums.txt"
+                  sha256sum "gft_${GITHUB_REF_NAME}_all.deb" > "$sums"
+                  comment=$(printf 'project:gft\tversion:%s\ttag:%s\tchannel:stable\ttimestamp:%s\tfile:%s' \
+                      "$GITHUB_REF_NAME" "$GITHUB_REF_NAME" "$(date +%s)" "$sums")
+                  trap 'rm -f "$RUNNER_TEMP/gft.key"' EXIT
+                  (umask 077 && printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/gft.key")
+                  printf '%s\n' "$MINISIGN_PASSWORD" |
+                      minisign -S -s "$RUNNER_TEMP/gft.key" -m "$sums" -x "$sums.minisig" -t "$comment" > /dev/null
+            - name: Verify the package and the signature
+              run: packaging/verify.sh dist
+            - name: Create draft release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: gh release create "$GITHUB_REF_NAME" dist/gft_* --draft --title "" --notes ""

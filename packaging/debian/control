@@ -1,0 +1,20 @@
+Source: gft
+Section: utils
+Priority: optional
+Maintainer: 20syldev <git@sylvain.sh>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Homepage: https://github.com/20syldev/gft
+Vcs-Browser: https://github.com/20syldev/gft
+Vcs-Git: https://github.com/20syldev/gft.git
+Rules-Requires-Root: no
+
+Package: gft
+Architecture: all
+Depends: ${misc:Depends}, curl, mawk | gawk
+Recommends: gh, git, unzip
+Suggests: xdg-utils
+Description: fetch GitHub release info and assets from the command line
+ gft shows release information, lists binary assets and downloads them
+ from any GitHub project, without authentication. It reads the release
+ pages directly, so there is no token to set up and no API rate limit.

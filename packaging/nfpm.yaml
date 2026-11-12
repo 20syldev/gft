@@ -1,0 +1,74 @@
+# nfpm configuration of the .deb, run by packaging/build-deb.sh and never by hand.
+# GFT_VERSION and GFT_STAGE come from the script; every file mode is explicit so that
+# the package does not depend on the permissions of the working tree.
+name: gft
+arch: all
+platform: linux
+version: ${GFT_VERSION}
+version_schema: none
+release: "1"
+section: utils
+priority: optional
+maintainer: 20syldev <git@sylvain.sh>
+homepage: https://github.com/20syldev/gft
+license: MIT
+description: |-
+    fetch GitHub release info and assets from the command line
+    gft shows the release information of any public GitHub project, lists its
+    binary assets and downloads them. It needs no account or token: it reads
+    the public release pages, and uses gh when it is logged in.
+depends:
+    - curl
+    - mawk | gawk
+recommends:
+    - git
+    - unzip
+    - gh
+suggests:
+    - xdg-utils
+contents:
+    - src: gft
+      dst: /usr/bin/gft
+      file_info:
+          mode: 0755
+    - src: gft
+      dst: /usr/bin/gfv
+      type: symlink
+      file_info:
+          mode: 0777
+    - src: completions/gft.bash
+      dst: /usr/share/bash-completion/completions/gft
+      file_info:
+          mode: 0644
+    - src: gft
+      dst: /usr/share/bash-completion/completions/gfv
+      type: symlink
+      file_info:
+          mode: 0777
+    - src: completions/_gft
+      dst: /usr/share/zsh/vendor-completions/_gft
+      file_info:
+          mode: 0644
+    - src: ${GFT_STAGE}/gft.1.gz
+      dst: /usr/share/man/man1/gft.1.gz
+      expand: true
+      file_info:
+          mode: 0644
+    - src: gft.1.gz
+      dst: /usr/share/man/man1/gfv.1.gz
+      type: symlink
+      file_info:
+          mode: 0777
+    - src: LICENSE
+      dst: /usr/share/doc/gft/copyright
+      file_info:
+          mode: 0644
+    - src: ${GFT_STAGE}/install-method
+      dst: /usr/share/gft/install-method
+      expand: true
+      file_info:
+          mode: 0644
+    - src: packaging/deb/lintian-overrides
+      dst: /usr/share/lintian/overrides/gft
+      file_info:
+          mode: 0644

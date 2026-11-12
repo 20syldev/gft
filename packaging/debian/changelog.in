@@ -1,0 +1,5 @@
+gft (@VERSION@) @SERIES@; urgency=medium
+
+  * @MESSAGE@
+
+ -- @MAINTAINER@  @DATE@

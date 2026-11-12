@@ -1,0 +1,3 @@
+usr/bin/gft usr/bin/gfv
+usr/share/bash-completion/completions/gft usr/share/bash-completion/completions/gfv
+usr/share/man/man1/gft.1 usr/share/man/man1/gfv.1

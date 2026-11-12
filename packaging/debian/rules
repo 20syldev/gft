@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+# gft is one shell script: nothing to build, the files are installed by hand below.
+
+include /usr/share/dpkg/pkg-info.mk
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+
+override_dh_auto_build:
+
+# Offline checks with an unwritable HOME as on the builders; --version also catches a forgotten bump.
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	bash -n gft
+	test "$$(HOME=/nonexistent GFT_NO_SPINNER=1 ./gft --version)" = "gft $(DEB_VERSION_UPSTREAM)"
+endif
+
+# install-method is read by gft: an apt-installed gft never updates or removes itself.
+override_dh_auto_install:
+	install -D -m 0755 gft debian/gft/usr/bin/gft
+	install -D -m 0644 completions/gft.bash debian/gft/usr/share/bash-completion/completions/gft
+	install -D -m 0644 completions/_gft debian/gft/usr/share/zsh/vendor-completions/_gft
+	install -D -m 0644 debian/install-method debian/gft/usr/share/gft/install-method
