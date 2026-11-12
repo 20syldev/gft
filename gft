@@ -127,12 +127,13 @@ show_help() {
     echo "  gft <user/repo> --source zip     Download source archive (non-interactive)"
     echo "  gft <user/repo> v1.0..v2.0       Compare two releases"
     echo
-    echo "Commands:"
+    echo "Commands (first argument only):"
     echo "  gft update                       Upgrade gft to the latest version"
     echo "  gft delete                       Uninstall gft"
     echo "  gft stash [action]               Manage git stashes (list, show, drop, clean)"
     echo
     echo "Options:"
+    echo "  --                 End of options: what follows is a repository or tag"
     echo "  -h, --help         Show this help"
     echo "  -v, --version      Show version"
     echo "  --check-update     Check if a newer version is available"
@@ -1366,8 +1367,48 @@ GET_PATTERN=""
 TAG_FROM=""
 TAG_TO=""
 
+# Commands are only recognised as the first argument.
+case "${1:-}" in
+    update)
+        setup_colors
+        self_upgrade
+        exit $?
+        ;;
+    delete|uninstall)
+        setup_colors
+        self_uninstall
+        exit $?
+        ;;
+    stash)
+        setup_colors
+        shift
+        cmd_stash "$@"
+        exit $?
+        ;;
+esac
+
+add_positional() {
+    if [ -z "$REPO" ]; then
+        REPO="$1"
+    elif [[ "$1" == *".."* ]]; then
+        TAG_FROM="${1%%..*}"
+        TAG_TO="${1##*..}"
+        MODE_COMPARE=true
+    else
+        TAG="$1"
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --)
+            # End of options: everything after is a repository or tag.
+            shift
+            while [[ $# -gt 0 ]]; do
+                add_positional "$1"
+                shift
+            done
+            ;;
         -h|--help)
             show_help
             exit 0
@@ -1381,20 +1422,9 @@ while [[ $# -gt 0 ]]; do
             check_update
             exit $?
             ;;
-        --upgrade|update)
+        --upgrade)
             setup_colors
             self_upgrade
-            exit $?
-            ;;
-        delete|uninstall)
-            setup_colors
-            self_uninstall
-            exit $?
-            ;;
-        stash)
-            setup_colors
-            shift
-            cmd_stash "$@"
             exit $?
             ;;
         --no-color)
@@ -1488,15 +1518,7 @@ while [[ $# -gt 0 ]]; do
             exit 1
             ;;
         *)
-            if [ -z "$REPO" ]; then
-                REPO="$1"
-            elif [[ "$1" == *".."* ]]; then
-                TAG_FROM="${1%%..*}"
-                TAG_TO="${1##*..}"
-                MODE_COMPARE=true
-            else
-                TAG="$1"
-            fi
+            add_positional "$1"
             shift
             ;;
     esac
