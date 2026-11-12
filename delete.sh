@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # gft uninstaller
-# Usage: curl -fsSL https://cdn.sylvain.sh/bash/gft@latest/delete.sh | sh
+# Usage: curl -fsSL https://dropr.sylvain.sh/bash/gft@latest/delete.sh | sh
 
 set -e
 

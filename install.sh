@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # gft installer
-# Usage: curl -fsSL https://cdn.sylvain.sh/bash/gft@latest/install.sh | sh
+# Usage: curl -fsSL https://dropr.sylvain.sh/bash/gft@latest/install.sh | sh
 
 set -e
 
@@ -12,7 +12,7 @@ if command -v dpkg-query >/dev/null 2>&1 \
     exit 1
 fi
 
-CDN="https://cdn.sylvain.sh/bash"
+CDN="https://dropr.sylvain.sh/bash"
 VERSION="$(curl -fsSL "${CDN}/gft@latest" | grep -o '"version": *"[^"]*"' | head -1 | cut -d'"' -f4)"
 if [ -z "$VERSION" ]; then
     printf "${RED}Failed to fetch version${NC}\n"
