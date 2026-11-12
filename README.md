@@ -26,8 +26,10 @@ chmod +x /usr/local/bin/gft
 ### Basic syntax
 
 ```bash
-gft <user/repo> [tag] [options]
+gft [options] [--] <user/repo> [tag]
 ```
+
+Options may come before or after the repository. Everything after `--` is a repository or a tag, never an option or a command.
 
 ### Quick examples
 
@@ -56,14 +58,22 @@ gft cli/cli --get "linux-amd64.deb" --checksum
 # Download, extract and install binary to PATH
 gft cli/cli --install
 
+# Choose where downloads and the installed binary go
+gft cli/cli --get linux-amd64.tar.gz --dir ~/Downloads
+gft junegunn/fzf --install --dir ~/.local/bin
+
 # Get just the version number (for scripts)
 VERSION=$(gft nodejs/node -q)
 
 # Show release notes
 gft cli/cli --notes
 
-# JSON output
+# JSON output (see "JSON output" below)
 gft cli/cli --json
+gft cli/cli --releases --json
+
+# A repository or tag that looks like an option or a command
+gft -- update/x
 
 # Compare two releases
 gft cli/cli v2.40.0..v2.50.0
@@ -116,8 +126,9 @@ gft stash clean -y
 - Direct asset download by pattern (`--get`)
 - Checksum verification after download (`--checksum`)
 - Binary install to PATH (`--install`)
+- Single destination folder for downloads and installs (`--dir`)
 - Release notes display (`--notes`)
-- JSON output for scripting (`--json`)
+- Stable JSON output for scripting (`--json`), same keys with or without `gh`
 - Quiet mode — just the version string (`-q`)
 - Version comparison (`v1.0..v2.0`)
 - All releases listing (`--releases`)
@@ -143,20 +154,23 @@ gft scrapes GitHub release pages directly, so it:
 - Has **no API rate limit** issues (scraping, not API)
 - Works on any machine with `curl` and `bash`
 
-When `gh` CLI is installed and authenticated, gft uses it transparently as a fallback for private repositories and richer JSON output.
+When `gh` CLI is installed and authenticated, gft reads release data from the GitHub API through it. The JSON output has the same keys either way.
 
 ## Commands
+
+Commands are only recognised as the first argument: `gft user/update` or `gft cli/cli stash` never runs a command.
 
 | Command                  | Description                          |
 | ------------------------ | ------------------------------------ |
 | `gft update`             | Upgrade gft to the latest version    |
-| `gft delete`             | Uninstall gft                        |
+| `gft delete`             | Uninstall gft (alias: `uninstall`)   |
 | `gft stash [action]`     | Manage git stashes (list, show, drop, clean) |
 
 ## Options
 
 | Option                  | Description                                    |
 | ----------------------- | ---------------------------------------------- |
+| `--`                    | End of options: what follows is a repo or tag  |
 | `-h, --help`            | Show help                                      |
 | `-v, --version`         | Show version                                   |
 | `--check-update`        | Check if a newer version of gft is available   |
@@ -167,6 +181,7 @@ When `gh` CLI is installed and authenticated, gft uses it transparently as a fal
 | `--get <pattern>`       | Download asset matching pattern                |
 | `--checksum, --verify`  | Verify SHA256 checksum after `--get`           |
 | `--install`             | Download, extract and install binary to PATH   |
+| `--dir <folder>`        | Write `--get`/`--source` files, the interactive (z)ip/(t)ar download and the `--install` binary there |
 | `--notes`               | Show release notes                             |
 | `--json`                | Output as JSON                                 |
 | `-q, --quiet`           | Output version tag only                        |
@@ -176,6 +191,49 @@ When `gh` CLI is installed and authenticated, gft uses it transparently as a fal
 | `--no-color`            | Disable colored output                         |
 | `--no-cache`            | Bypass response cache                          |
 | `--clear-cache`         | Clear all cached responses                     |
+
+## JSON output
+
+`gft <user/repo> [tag] --json` prints one object, with the same keys whether the data comes from the GitHub API (`gh` logged in) or from the web pages. The output is compact on a single line (no spaces, e.g. `"published_at":"..."`) when stdout is not a terminal, and indented on a terminal.
+
+```json
+{
+  "schema": 1,
+  "repository": "cli/cli",
+  "tag": "v2.104.0",
+  "name": "GitHub CLI 2.104.0",
+  "published_at": "2026-11-12T19:03:51Z",
+  "prerelease": false,
+  "release_url": "https://github.com/cli/cli/releases/tag/v2.104.0",
+  "repo_url": "https://github.com/cli/cli",
+  "zip_url": "https://github.com/cli/cli/archive/refs/tags/v2.104.0.zip",
+  "tarball_url": "https://github.com/cli/cli/archive/refs/tags/v2.104.0.tar.gz",
+  "source": "api",
+  "assets": [
+    {
+      "name": "gh_2.104.0_checksums.txt",
+      "url": "https://github.com/cli/cli/releases/download/v2.104.0/gh_2.104.0_checksums.txt",
+      "digest": "sha256:180df77fb931591d5d65e33f02a76c9ade314d1c335569af73cc6c8fcb365d2c"
+    }
+  ]
+}
+```
+
+| Key            | Type            | Notes                                                    |
+| -------------- | --------------- | -------------------------------------------------------- |
+| `schema`       | integer         | `1`; raised only on an incompatible change               |
+| `repository`   | string          | As given on the command line                             |
+| `tag`          | string          | Release tag                                              |
+| `name`         | string          | Release title, or the tag when the release has none      |
+| `published_at` | string \| null  | Publication date, ISO 8601 UTC                           |
+| `prerelease`   | boolean         |                                                          |
+| `release_url`, `repo_url`, `zip_url`, `tarball_url` | string |                                   |
+| `source`       | string          | `"api"` (through `gh`) or `"web"` (GitHub pages)         |
+| `assets`       | array           | Sorted by name: `name`, `url` (strings), `digest` (`"sha256:..."` or null) |
+
+When the release cannot be found, nothing is printed on stdout, the error goes to stderr and the exit status is 1.
+
+`gft <user/repo> --releases --json` prints an array of the first ten releases, newest first, each with `tag`, `name`, `published_at` and `prerelease` (typed as above), or `[]` when there is none.
 
 ## Environment variables
 

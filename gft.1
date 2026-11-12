@@ -3,9 +3,14 @@
 gft \- GitHub Fetch Tool
 .SH SYNOPSIS
 .B gft
+.RI [ options ]
+.RB [ \-\- ]
 .I user/repo
 .RI [ tag ]
-.RI [ options ]
+.br
+.B gft
+.BR update " | " delete " | " stash
+.RI [ action ]
 .SH DESCRIPTION
 .B gft
 is a lightweight command-line tool to fetch release information, list binary
@@ -14,8 +19,9 @@ assets, and download from any GitHub project \[em] without authentication.
 It scrapes GitHub release pages directly, requiring no token setup and avoiding
 API rate limit issues. When the
 .B gh
-CLI is installed and authenticated, gft uses it transparently as a fallback
-for private repositories and richer JSON output.
+CLI is installed and authenticated, gft reads release data from the GitHub API
+through it; the JSON output keeps the same keys either way (see
+.BR "JSON OUTPUT" ).
 .SH USAGE
 .TP
 .BI "gft " user/repo
@@ -27,6 +33,11 @@ Show info for a specific release tag
 .BI "gft " "user/repo v1.0..v2.0"
 Compare two releases
 .SH OPTIONS
+.TP
+.B \-\-
+End of options: every following argument is a repository or a tag, never an
+option or a command (e.g.
+.BR "gft \-\- update/x" ).
 .TP
 .BR \-h ", " \-\-help
 Show help and exit.
@@ -53,7 +64,11 @@ Download the asset whose name matches
 If multiple assets match, an interactive selection prompt is shown.
 .TP
 .B \-\-install
-Download, extract, and install the binary to your PATH automatically.
+Download, extract, and install the binary to your PATH automatically
+(\fI/usr/local/bin\fR when writable, else \fI~/.local/bin\fR or \fI~/bin\fR,
+or the
+.B \-\-dir
+folder). The download and its extraction happen in a temporary folder.
 Uses
 .B \-\-detect
 to find the right asset when no
@@ -61,7 +76,10 @@ to find the right asset when no
 pattern is given.
 .TP
 .BR \-\-releases ", " \-\-list
-List all available releases for the repository.
+List all available releases for the repository. With
+.BR \-\-json ,
+prints the first ten releases as described in
+.BR "JSON OUTPUT" .
 .TP
 .B \-\-source " zip|tar"
 Download the source archive non-interactively.
@@ -78,13 +96,28 @@ or
 .BR \-\-install .
 Looks for a companion checksum file among the release assets.
 .TP
+.BI \-\-dir " folder"
+Write the files of
+.B \-\-get
+and
+.BR \-\-source ,
+the interactive (z)ip/(t)ar download, and the binary of
+.BR \-\-install ,
+to
+.I folder
+instead of the working directory (or the PATH folder for
+.BR \-\-install ).
+The folder must already exist and be writable.
+.TP
 .B \-\-notes
 Show the release notes for the resolved tag.
 .TP
 .B \-\-json
-Output release information as JSON. Uses the GitHub API via
-.B gh
-if available, otherwise builds JSON from scraped data.
+Output release information as JSON, with the same keys whether the data comes
+from the GitHub API (through
+.BR gh )
+or from the web pages. See
+.BR "JSON OUTPUT" .
 .TP
 .BR \-q ", " \-\-quiet
 Output the version tag only. Useful for scripting:
@@ -113,6 +146,13 @@ Bypass the local response cache for this invocation.
 .B \-\-clear\-cache
 Clear all cached responses and exit.
 .SH COMMANDS
+Commands are only recognised as the first argument: a repository or tag named
+.BR update ,
+.BR delete ,
+.B uninstall
+or
+.B stash
+is never taken for a command.
 .TP
 .B gft update
 Upgrade gft to the latest version in-place. Alias:
@@ -157,6 +197,61 @@ Option
 .B \-\-yes
 skips confirmation prompts (useful in scripts).
 .RE
+.SH JSON OUTPUT
+.B gft
+.I user/repo
+.RI [ tag ]
+.B \-\-json
+prints one object (schema 1). The output is compact, on a single line with no
+spaces, when standard output is not a terminal, and indented on a terminal.
+Keys, always present and in this order:
+.TP
+.B schema
+Integer, 1. Raised only on an incompatible change.
+.TP
+.BR repository ", " tag ", " name
+Strings: the repository as given, the release tag, the release title (the tag
+when the release has no title).
+.TP
+.B published_at
+Publication date, ISO 8601 UTC (e.g. 2026\-11\-12T19:03:51Z), or null.
+.TP
+.B prerelease
+Boolean.
+.TP
+.BR release_url ", " repo_url ", " zip_url ", " tarball_url
+Strings.
+.TP
+.B source
+.B \(dqapi\(dq
+(read through
+.BR gh )
+or
+.B \(dqweb\(dq
+(read from the GitHub pages).
+.TP
+.B assets
+Array of objects sorted by name, each with
+.B name
+and
+.B url
+(strings) and
+.B digest
+(\fB"sha256:..."\fR or null).
+.PP
+When the release cannot be found, nothing is printed on standard output, an
+error goes to standard error and the exit status is 1.
+.PP
+.B gft
+.I user/repo
+.B \-\-releases \-\-json
+prints an array (newest first, up to ten) of objects with
+.BR tag ,
+.BR name ,
+.B published_at
+and
+.BR prerelease ,
+typed as above; an empty array when the repository has no release.
 .SH ENVIRONMENT
 .TP
 .B NO_COLOR
@@ -228,6 +323,15 @@ JSON output:
 .TP
 Download source as tar.gz (non-interactive):
 .B gft cli/cli --source tar
+.TP
+Download into a given folder:
+.B gft cli/cli --get linux-amd64.tar.gz --dir ~/Downloads
+.TP
+Install the binary into a given folder:
+.B gft junegunn/fzf --install --dir ~/.local/bin
+.TP
+Treat everything after \-\- as a repository or tag:
+.B gft -- update/x
 .TP
 Download and verify checksum:
 .B gft cli/cli --get linux-amd64.tar.gz --checksum
