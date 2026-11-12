@@ -171,6 +171,81 @@ show_help() {
 GFT_REPO="20syldev/gft"
 CDN="https://cdn.sylvain.sh/bash"
 
+# Print -1, 0 or 1 when version $1 is older than, equal to or newer than $2.
+version_cmp() {
+    local a="${1#v}" b="${2#v}" pa pb i n x y
+    local -a va vb
+    a="${a%%+*}" b="${b%%+*}"
+    pa="${a#*-}"; [[ "$pa" == "$a" ]] && pa=""
+    pb="${b#*-}"; [[ "$pb" == "$b" ]] && pb=""
+    IFS=. read -ra va <<< "${a%%-*}"
+    IFS=. read -ra vb <<< "${b%%-*}"
+    n=$(( ${#va[@]} > ${#vb[@]} ? ${#va[@]} : ${#vb[@]} ))
+    for (( i = 0; i < n; i++ )); do
+        x="${va[i]:-0}" y="${vb[i]:-0}"
+        x="${x//[!0-9]/}" y="${y//[!0-9]/}"
+        x=$(( 10#${x:-0} )) y=$(( 10#${y:-0} ))
+        (( x > y )) && { echo 1; return 0; }
+        (( x < y )) && { echo -1; return 0; }
+    done
+    # Same release: a pre-release sorts before the release, identifiers compare one by one.
+    [[ "$pa" == "$pb" ]] && { echo 0; return 0; }
+    [[ -z "$pa" ]] && { echo 1; return 0; }
+    [[ -z "$pb" ]] && { echo -1; return 0; }
+    IFS=. read -ra va <<< "$pa"
+    IFS=. read -ra vb <<< "$pb"
+    n=$(( ${#va[@]} > ${#vb[@]} ? ${#va[@]} : ${#vb[@]} ))
+    for (( i = 0; i < n; i++ )); do
+        x="${va[i]:-}" y="${vb[i]:-}"
+        [[ "$x" == "$y" ]] && continue
+        [[ -z "$x" ]] && { echo -1; return 0; }
+        [[ -z "$y" ]] && { echo 1; return 0; }
+        if [[ "$x" =~ ^[0-9]+$ && "$y" =~ ^[0-9]+$ ]]; then
+            (( 10#$x > 10#$y )) && { echo 1; return 0; }
+            echo -1; return 0
+        fi
+        [[ "$x" =~ ^[0-9]+$ ]] && { echo -1; return 0; }
+        [[ "$y" =~ ^[0-9]+$ ]] && { echo 1; return 0; }
+        [[ "$x" > "$y" ]] && { echo 1; return 0; }
+        echo -1; return 0
+    done
+    echo 0
+}
+
+# Read the marker written by the apt package, found next to the real script (../share/gft).
+INSTALL_METHOD="" INSTALL_PKG=""
+read_install_method() {
+    local real marker key val
+    real=$(readlink -f "$0" 2>/dev/null) || real=""
+    [[ -n "$real" ]] || real="$0"
+    marker="$(dirname "$real")/../share/gft/install-method"
+    [[ -f "$marker" ]] || return 0
+    while IFS='=' read -r key val || [[ -n "$key" ]]; do
+        case "$key" in
+            install_method) INSTALL_METHOD="$val" ;;
+            package) INSTALL_PKG="$val" ;;
+        esac
+    done < "$marker"
+}
+
+# Print how to $1 (upgrade or remove) gft through apt, preceded by a header unless $2 is "brief".
+install_hint() {
+    if [[ "${2:-}" != "brief" ]]; then
+        echo -e "${YELLOW}${SYM_FAIL} gft is managed by apt${NC}"
+        echo
+    fi
+    if [[ "$1" == "upgrade" ]]; then
+        if [[ "$INSTALL_PKG" == "deb" ]]; then
+            echo -e "  ${BLUE}Download:${NC}   https://github.com/$GFT_REPO/releases/latest"
+            echo -e "  ${BLUE}Upgrade:${NC}    ${CYAN}sudo apt install ./gft_<version>_all.deb${NC}"
+        else
+            echo -e "  ${BLUE}Upgrade:${NC}    ${CYAN}sudo apt update && sudo apt upgrade gft${NC}"
+        fi
+    else
+        echo -e "  ${BLUE}Remove:${NC}     ${CYAN}sudo apt remove gft${NC}"
+    fi
+}
+
 check_update() {
     spinner_start "Checking for updates..."
 
@@ -184,21 +259,34 @@ check_update() {
         return 1
     fi
 
-    # Strip leading 'v' for comparison
-    local current_clean="${VERSION#v}"
-    local latest_clean="${latest#v}"
-
-    if [[ "$current_clean" == "$latest_clean" ]]; then
-        echo -e "${GREEN}${SYM_OK} gft ${VERSION} is up to date${NC}"
-    else
-        echo -e "${YELLOW}${SYM_BULLET} Update available: ${CYAN}${VERSION}${NC} ${SYM_ARROW} ${GREEN}${latest}${NC}"
-        echo
-        echo -e "  ${BLUE}Upgrade:${NC}    ${CYAN}gft --upgrade${NC}"
-        echo -e "  ${BLUE}Release:${NC}    https://github.com/$GFT_REPO/releases/tag/$latest"
-    fi
+    case "$(version_cmp "$VERSION" "$latest")" in
+        0)
+            echo -e "${GREEN}${SYM_OK} gft ${VERSION} is up to date${NC}"
+            ;;
+        1)
+            echo -e "${GREEN}${SYM_OK} gft ${VERSION} is newer than the latest release (${latest})${NC}"
+            ;;
+        *)
+            echo -e "${YELLOW}${SYM_BULLET} Update available: ${CYAN}${VERSION}${NC} ${SYM_ARROW} ${GREEN}${latest}${NC}"
+            echo
+            read_install_method
+            if [[ "$INSTALL_METHOD" == "apt" ]]; then
+                install_hint upgrade brief
+            else
+                echo -e "  ${BLUE}Upgrade:${NC}    ${CYAN}gft --upgrade${NC}"
+            fi
+            echo -e "  ${BLUE}Release:${NC}    https://github.com/$GFT_REPO/releases/tag/$latest"
+            ;;
+    esac
 }
 
 self_upgrade() {
+    read_install_method
+    if [[ "$INSTALL_METHOD" == "apt" ]]; then
+        install_hint upgrade
+        return 1
+    fi
+
     spinner_start "Fetching latest version..."
 
     local latest
@@ -211,13 +299,16 @@ self_upgrade() {
         return 1
     fi
 
-    local current_clean="${VERSION#v}"
-    local latest_clean="${latest#v}"
-
-    if [[ "$current_clean" == "$latest_clean" ]]; then
-        echo -e "${GREEN}${SYM_OK} gft ${VERSION} is already up to date${NC}"
-        return 0
-    fi
+    case "$(version_cmp "$VERSION" "$latest")" in
+        0)
+            echo -e "${GREEN}${SYM_OK} gft ${VERSION} is already up to date${NC}"
+            return 0
+            ;;
+        1)
+            echo -e "${GREEN}${SYM_OK} gft ${VERSION} is newer than the latest release (${latest})${NC}"
+            return 0
+            ;;
+    esac
 
     echo -e "${SYM_ARROW} Upgrading ${CYAN}${VERSION}${NC} ${SYM_ARROW} ${GREEN}${latest}${NC}..."
 
@@ -267,6 +358,12 @@ self_upgrade() {
 }
 
 self_uninstall() {
+    read_install_method
+    if [[ "$INSTALL_METHOD" == "apt" ]]; then
+        install_hint remove
+        return 1
+    fi
+
     echo -e "${BLUE}gft uninstaller${NC}\n"
 
     if [[ ! -d "$GFT_DIR" ]]; then
