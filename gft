@@ -12,7 +12,8 @@ shopt -u patsub_replacement 2>/dev/null || true
 GFT_DIR="$HOME/.config/gft"
 CACHE_DIR="$GFT_DIR/cache"
 CACHE_TTL="${GFT_CACHE_TTL:-300}"
-VERSION="$(cat "$GFT_DIR/VERSION" 2>/dev/null || echo "unknown")"
+# Kept in sync with the VERSION file by the release bump.
+VERSION="1.1.0"
 
 # Colors
 RED='\033[0;31m'
