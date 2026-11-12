@@ -24,6 +24,11 @@ _gft() {
         return
     fi
 
+    # After "--" every word is a repository or tag.
+    if (( ${words[(I)--]} > 0 && ${words[(I)--]} < CURRENT )); then
+        return
+    fi
+
     _arguments \
         '1:repository (user/repo):' \
         '2:tag or version range:' \
@@ -41,6 +46,7 @@ _gft() {
         '--pre[Include pre-releases when resolving latest]' \
         '--prerelease[Include pre-releases when resolving latest]' \
         '--open[Open release page in browser]' \
+        '--dir[Write downloads and the installed binary to this folder]:folder:_files -/' \
         '(-q --quiet)'{-q,--quiet}'[Output version only]' \
         '(-h --help)'{-h,--help}'[Show help]' \
         '(-v --version)'{-v,--version}'[Show version]' \
