@@ -18,7 +18,8 @@ _gft() {
 
     case "$prev" in
         --dir)
-            COMPREPLY=($(compgen -d -- "$cur"))
+            compopt -o filenames 2>/dev/null
+            mapfile -t COMPREPLY < <(compgen -d -- "$cur")
             return 0
             ;;
         --get)
