@@ -140,6 +140,7 @@ show_help() {
     echo "  --upgrade          Upgrade gft to the latest version"
     echo "  --pre              Include pre-releases when resolving latest"
     echo "  --checksum         Verify download checksum after --get"
+    echo "  --dir <folder>     Write downloads (--get, --source) and --install binary there"
     echo "  --open             Open release page in browser"
     echo "  --no-color         Disable colors"
     echo "  --no-cache         Bypass response cache"
@@ -1150,12 +1151,13 @@ download_asset() {
     fi
 
     local url="https://github.com${matches}"
-    local filename
+    local filename dest
     filename=$(basename "$matches")
+    dest=$(dest_path "$filename")
 
     echo -e "${SYM_ARROW} Downloading ${CYAN}${filename}${NC}..."
-    if curl -LO --progress-bar "$url"; then
-        echo -e "${GREEN}${SYM_OK} Downloaded: ${filename}${NC}"
+    if curl -L --progress-bar "$url" -o "$dest"; then
+        echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
     else
         echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         return 1
@@ -1165,10 +1167,19 @@ download_asset() {
         local checksum_path
         checksum_path=$(find_checksum_asset "$filename" "$assets")
         if [[ -n "$checksum_path" ]]; then
-            verify_checksum "$filename" "$checksum_path"
+            verify_checksum "$dest" "$checksum_path"
         else
             echo -e "${YELLOW}${SYM_FAIL} No checksum file found for ${filename}${NC}"
         fi
+    fi
+}
+
+# Where a downloaded file goes: the --dir folder, or the working directory.
+dest_path() {
+    if [[ -n "$DL_DIR" ]]; then
+        printf '%s/%s' "${DL_DIR%/}" "$1"
+    else
+        printf '%s' "$1"
     fi
 }
 
@@ -1224,8 +1235,17 @@ install_asset() {
     filename=$(basename "$selected_path")
     local url="https://github.com${selected_path}"
 
+    # The download and its extraction stay in a temporary folder: only the binary is written out.
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmp_dir'" EXIT
+    local archive="$tmp_dir/$filename"
+    local extract_dir="$tmp_dir/extract"
+    mkdir "$extract_dir"
+
     echo -e "${SYM_ARROW} Downloading ${CYAN}${filename}${NC}..."
-    if ! curl -L --progress-bar "$url" -o "$filename"; then
+    if ! curl -L --progress-bar "$url" -o "$archive"; then
         echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         return 1
     fi
@@ -1235,40 +1255,35 @@ install_asset() {
         local checksum_path
         checksum_path=$(find_checksum_asset "$filename" "$assets")
         if [[ -n "$checksum_path" ]]; then
-            verify_checksum "$filename" "$checksum_path" || { rm -f "$filename"; return 1; }
+            verify_checksum "$archive" "$checksum_path" || return 1
         else
             echo -e "${YELLOW}${SYM_FAIL} No checksum file found, proceeding without verification${NC}"
         fi
     fi
-
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    # shellcheck disable=SC2064
-    trap "rm -rf '$tmp_dir'" EXIT
 
     local binary_path=""
 
     case "$filename" in
         *.tar.gz|*.tgz)
             echo -e "${SYM_ARROW} Extracting archive..."
-            if ! tar xzf "$filename" -C "$tmp_dir" 2>/dev/null; then
+            if ! tar xzf "$archive" -C "$extract_dir" 2>/dev/null; then
                 echo -e "${RED}${SYM_FAIL} Extraction failed${NC}"
-                rm -f "$filename"; return 1
+                return 1
             fi
             ;;
         *.zip)
             echo -e "${SYM_ARROW} Extracting archive..."
             if ! command -v unzip &>/dev/null; then
                 echo -e "${RED}${SYM_FAIL} unzip is required to extract .zip files${NC}"
-                rm -f "$filename"; return 1
+                return 1
             fi
-            if ! unzip -q "$filename" -d "$tmp_dir" 2>/dev/null; then
+            if ! unzip -q "$archive" -d "$extract_dir" 2>/dev/null; then
                 echo -e "${RED}${SYM_FAIL} Extraction failed${NC}"
-                rm -f "$filename"; return 1
+                return 1
             fi
             ;;
         *)
-            binary_path="$filename"
+            binary_path="$archive"
             chmod +x "$binary_path"
             ;;
     esac
@@ -1276,32 +1291,35 @@ install_asset() {
     if [[ -z "$binary_path" ]]; then
         local repo_name
         repo_name=$(echo "$REPO" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')
-        binary_path=$(find "$tmp_dir" -type f -name "$repo_name" 2>/dev/null | head -1) || true
+        binary_path=$(find "$extract_dir" -type f -name "$repo_name" 2>/dev/null | head -1) || true
         if [[ -z "$binary_path" ]]; then
-            binary_path=$(find "$tmp_dir" -type f -perm /111 \
+            binary_path=$(find "$extract_dir" -type f -perm /111 \
                 ! -path "*/__MACOSX/*" ! -name "*.sh" ! -name "*.md" \
                 2>/dev/null | head -1) || true
         fi
         if [[ -z "$binary_path" ]]; then
             echo -e "${RED}${SYM_FAIL} No executable binary found in archive${NC}"
-            rm -f "$filename"; return 1
+            return 1
         fi
     fi
 
     local install_dir
-    install_dir=$(find_install_dir)
+    if [[ -n "$DL_DIR" ]]; then
+        install_dir="${DL_DIR%/}"
+    else
+        install_dir=$(find_install_dir)
+    fi
     local binary_name
     binary_name=$(basename "$binary_path")
 
-    echo -e "${SYM_ARROW} Installing ${CYAN}${binary_name}${NC} to ${CYAN}${install_dir}${NC}..."
+    echo -e "${SYM_ARROW} Installing ${CYAN}${binary_name}${NC} to ${CYAN}${install_dir:-/}${NC}..."
     if cp "$binary_path" "$install_dir/$binary_name" && chmod +x "$install_dir/$binary_name"; then
         echo -e "${GREEN}${SYM_OK} Installed: ${install_dir}/${binary_name}${NC}"
     else
         echo -e "${RED}${SYM_FAIL} Installation failed (permission denied?)${NC}"
-        rm -f "$filename"; return 1
+        return 1
     fi
 
-    rm -f "$filename"
     trap - EXIT
     rm -rf "$tmp_dir"
 }
@@ -1392,21 +1410,20 @@ prompt_download() {
     read -p "$(echo -e "${YELLOW}${SYM_ARROW} Download? ${NC}(z)ip, (t)ar.gz, (n)o [n]: ")" -n 1 -r
     echo
 
+    local dest
     if [[ $REPLY =~ ^[Zz]$ ]]; then
         echo -e "${SYM_ARROW} Downloading ZIP archive..."
-        if curl -LO "$ZIP_URL" 2>/dev/null; then
-            local filename
-            filename=$(basename "$ZIP_URL")
-            echo -e "${GREEN}${SYM_OK} Downloaded: ${filename}${NC}"
+        dest=$(dest_path "$(basename "$ZIP_URL")")
+        if curl -L "$ZIP_URL" -o "$dest" 2>/dev/null; then
+            echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
         else
             echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         fi
     elif [[ $REPLY =~ ^[Tt]$ ]]; then
         echo -e "${SYM_ARROW} Downloading TAR.GZ archive..."
-        if curl -LO "$TARBALL_URL" 2>/dev/null; then
-            local filename
-            filename=$(basename "$TARBALL_URL")
-            echo -e "${GREEN}${SYM_OK} Downloaded: ${filename}${NC}"
+        dest=$(dest_path "$(basename "$TARBALL_URL")")
+        if curl -L "$TARBALL_URL" -o "$dest" 2>/dev/null; then
+            echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
         else
             echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         fi
@@ -1594,6 +1611,7 @@ REPO=""
 TAG="latest"
 NO_RELEASE=false
 MSG_FD=1
+DL_DIR=""
 MODE_QUIET=false
 MODE_ASSETS=false
 MODE_DETECT=false
@@ -1748,6 +1766,14 @@ while [[ $# -gt 0 ]]; do
             fi
             shift 2
             ;;
+        --dir)
+            DL_DIR="${2:-}"
+            if [[ -z "$DL_DIR" ]]; then
+                echo -e "${RED}${SYM_FAIL} --dir requires a folder argument${NC}"
+                exit 1
+            fi
+            shift 2
+            ;;
         --notes)
             MODE_NOTES=true
             shift
@@ -1795,6 +1821,12 @@ fi
 # Conflict checks
 if [[ -n "$MODE_SOURCE" ]] && [[ "$MODE_GET" == true ]]; then
     echo -e "${RED}${SYM_FAIL} --source and --get cannot be used together${NC}" >&"$MSG_FD"
+    exit 1
+fi
+
+# --dir is never created: a missing folder is more likely a typo than a wish.
+if [[ -n "$DL_DIR" ]] && { [[ ! -d "$DL_DIR" ]] || [[ ! -w "$DL_DIR" ]]; }; then
+    echo -e "${RED}${SYM_FAIL} --dir: not a writable folder: ${DL_DIR}${NC}" >&"$MSG_FD"
     exit 1
 fi
 
@@ -1863,7 +1895,7 @@ if [[ -n "$MODE_SOURCE" ]]; then
     case "$MODE_SOURCE" in
         zip)
             echo -e "${SYM_ARROW} Downloading ZIP source archive..."
-            dl_file=$(basename "$ZIP_URL")
+            dl_file=$(dest_path "$(basename "$ZIP_URL")")
             if curl -L --progress-bar "$ZIP_URL" -o "$dl_file"; then
                 echo -e "${GREEN}${SYM_OK} Downloaded: ${dl_file}${NC}"
             else
@@ -1873,7 +1905,7 @@ if [[ -n "$MODE_SOURCE" ]]; then
             ;;
         tar|tar.gz|tarball)
             echo -e "${SYM_ARROW} Downloading TAR.GZ source archive..."
-            dl_file=$(basename "$TARBALL_URL")
+            dl_file=$(dest_path "$(basename "$TARBALL_URL")")
             if curl -L --progress-bar "$TARBALL_URL" -o "$dl_file"; then
                 echo -e "${GREEN}${SYM_OK} Downloaded: ${dl_file}${NC}"
             else
