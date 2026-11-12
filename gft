@@ -606,7 +606,98 @@ list_assets() {
 
 # ─── Releases listing ────────────────────────────────────────────────
 
+# First 10 releases as tag, name, published_at, prerelease rows (\037-separated).
+releases_from_api() {
+    gh_ready || return 1
+    local rows
+    rows=$(gh_tsv "repos/$REPO/releases?per_page=20" \
+        '[.[] | select(.draft | not)][:10][]
+         | [.tag_name, .name // "", .published_at // "", (.prerelease | tostring)] | @tsv') \
+        || return 1
+
+    local tag name published prerelease
+    while IFS=$'\037' read -r tag name published prerelease; do
+        [[ -z "$tag" ]] && continue
+        printf '%s\037%s\037%s\037%s\n' "$(tsv_unescape "$tag")" "$(tsv_unescape "$name")" \
+            "$published" "$prerelease"
+    done <<< "$rows"
+}
+
+releases_from_web() {
+    local page
+    page=$(fetch_page "https://github.com/$REPO/releases")
+    [[ -n "$page" ]] || return 1
+
+    # One <section id="release-..."> per release: its title link, first ISO date and labels.
+    local rows
+    rows=$(printf '%s' "$page" | awk '
+        function flush() {
+            if (tag != "") print tag "\037" name "\037" date "\037" pre
+            tag = ""; name = ""; date = ""; pre = "false"
+        }
+        /<section id="release-/ { flush(); insec = 1 }
+        insec && tag == "" && match($0, /href="\/[^"]+\/releases\/tag\/[^"]+"[^>]*class="Link--primary Link">[^<]*</) {
+            link = substr($0, RSTART, RLENGTH)
+            t = link; sub(/^href="\/[^"]+\/releases\/tag\//, "", t); sub(/".*/, "", t)
+            n = link; sub(/^[^>]*>/, "", n); sub(/<$/, "", n)
+            tag = t; name = n
+        }
+        insec && date == "" && match($0, /<relative-time[^>]*datetime="[0-9-]+T[0-9:]+Z"/) {
+            d = substr($0, RSTART, RLENGTH); sub(/.*datetime="/, "", d); sub(/"$/, "", d)
+            date = d
+        }
+        insec && /class="Label Label--warning[^"]*">Pre-release</ { pre = "true" }
+        END { flush() }
+    ') || true
+
+    local tag name published prerelease
+    while IFS=$'\037' read -r tag name published prerelease; do
+        [[ -z "$tag" ]] && continue
+        printf '%s\037%s\037%s\037%s\n' "$(url_decode "$tag")" "$(html_decode "$name")" \
+            "$published" "$prerelease"
+    done <<< "$rows"
+}
+
+releases_json() {
+    local rows
+    if ! rows=$(releases_from_api); then
+        if ! rows=$(releases_from_web); then
+            echo "gft: could not fetch releases for $REPO" >&2
+            exit 1
+        fi
+    fi
+
+    json_setup
+    local n=$J_NL s=$J_SEP
+    if [[ -z "$rows" ]]; then
+        printf '[]\n'
+        return 0
+    fi
+
+    printf '[%s' "$n"
+    local tag name published prerelease first=true
+    while IFS=$'\037' read -r tag name published prerelease; do
+        [[ -z "$tag" ]] && continue
+        [[ "$prerelease" == true ]] || prerelease=false
+        [[ -n "$name" ]] || name="$tag"
+        $first || printf ',%s' "$n"
+        first=false
+        printf '%s{%s' "$J_I1" "$n"
+        printf '%s"tag"%s%s,%s' "$J_I2" "$s" "$(json_str "$tag")" "$n"
+        printf '%s"name"%s%s,%s' "$J_I2" "$s" "$(json_str "$name")" "$n"
+        printf '%s"published_at"%s%s,%s' "$J_I2" "$s" "$(json_str_or_null "$published")" "$n"
+        printf '%s"prerelease"%s%s%s' "$J_I2" "$s" "$prerelease" "$n"
+        printf '%s}' "$J_I1"
+    done <<< "$rows"
+    printf '%s]\n' "$n"
+}
+
 list_releases() {
+    if [[ "${MODE_JSON:-false}" == true ]]; then
+        releases_json
+        return 0
+    fi
+
     local releases_url="https://github.com/$REPO/releases"
     local response
     response=$(fetch_page "$releases_url")
@@ -624,18 +715,6 @@ list_releases() {
 
     if [[ -z "$all_tags" ]]; then
         echo -e "${YELLOW}${SYM_FAIL} No releases found for $REPO${NC}"
-        return 0
-    fi
-
-    if [[ "${MODE_JSON:-false}" == true ]]; then
-        printf '[\n'
-        local first=true
-        while IFS= read -r tag; do
-            $first || printf ',\n'
-            printf '  {"tag": "%s"}' "$tag"
-            first=false
-        done <<< "$all_tags"
-        printf '\n]\n'
         return 0
     fi
 
