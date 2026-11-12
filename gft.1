@@ -46,10 +46,19 @@ Show help and exit.
 Show gft version and exit.
 .TP
 .B \-\-check\-update
-Check if a newer version of gft is available.
+Check if a newer version of gft is available. Versions are compared
+numerically, ignoring a leading \fBv\fR: an older gft reports an update, an
+equal one is up to date, and a newer one (a development build) is reported as
+newer than the latest release. When gft is installed as a package (see
+.BR "PACKAGE INSTALLATION" ),
+the update message shows the apt command instead of
+.BR "gft \-\-upgrade" .
 .TP
 .B \-\-upgrade
-Upgrade gft to the latest version in-place.
+Upgrade gft to the latest version in-place. Does nothing and exits with status
+1 when gft is installed as a package (see
+.BR "PACKAGE INSTALLATION" ).
+Never installs an older version.
 .TP
 .B \-\-assets
 List binary release assets for the given tag.
@@ -157,10 +166,15 @@ is never taken for a command.
 .B gft update
 Upgrade gft to the latest version in-place. Alias:
 .BR \-\-upgrade .
+Under a package, prints the apt command to run and exits with status 1
+without changing anything.
 .TP
 .B gft delete
 Uninstall gft and remove all associated files. Alias:
 .BR uninstall .
+Under a package, prints
+.B sudo apt remove gft
+and exits with status 1 without changing anything.
 .TP
 .BI "gft stash " "[action]"
 Manage git stashes in the repository at the current directory.
@@ -196,6 +210,73 @@ Option
 /
 .B \-\-yes
 skips confirmation prompts (useful in scripts).
+.RE
+.SH PACKAGE INSTALLATION
+The
+.B gft
+package for Debian and Ubuntu (one file for every architecture) installs
+.IR /usr/bin/gft ,
+the alias
+.IR /usr/bin/gfv ,
+the bash and zsh completions and this manual page. It is distributed as a
+.I .deb
+attached to each GitHub release, which is installed with
+.BR "sudo apt install ./gft_<version>_all.deb" .
+.PP
+The package contains the marker
+.IR /usr/share/gft/install-method ,
+which gft reads at
+.I ../share/gft/install-method
+relative to the real location of the script. When it says
+.BR install_method=apt ,
+.BR "gft update" ,
+.BR "gft \-\-upgrade" ,
+.B gft delete
+and
+.B gft uninstall
+change nothing: they print the apt command and exit with status 1. The command
+depends on the
+.B package=
+line of the marker. For
+.BR package=deb ,
+the file attached to a GitHub release, the new
+.I .deb
+is downloaded from https://github.com/20syldev/gft/releases/latest and installed with
+.BR "sudo apt install ./gft_<version>_all.deb" .
+For
+.B package=apt
+and
+.BR package=ppa ,
+use
+.BR "sudo apt update && sudo apt upgrade gft" .
+Removal is always
+.BR "sudo apt remove gft" .
+.PP
+The
+.B install.sh
+installer and its companions
+.B update.sh
+and
+.B delete.sh
+refuse to run while the package is installed. Do not mix both ways of
+installing gft.
+.PP
+Each GitHub release also carries
+.I gft_<version>_checksums.txt
+(the SHA-256 of the
+.IR .deb )
+and its minisign signature
+.IR gft_<version>_checksums.txt.minisig ,
+made with the key
+.I packaging/minisign.pub
+of the source repository at the release tag. To verify them:
+.PP
+.RS
+.nf
+curl \-fsSLO https://raw.githubusercontent.com/20syldev/gft/<version>/packaging/minisign.pub
+minisign \-V \-H \-p minisign.pub \-m gft_<version>_checksums.txt
+sha256sum \-\-strict \-c gft_<version>_checksums.txt
+.fi
 .RE
 .SH JSON OUTPUT
 .B gft
@@ -287,6 +368,30 @@ Installed version of gft.
 .I ~/.config/gft/cache/
 Cached HTTP responses (cleared by
 .BR \-\-clear\-cache ).
+.PP
+Files of the package (see
+.BR "PACKAGE INSTALLATION" ):
+.TP
+.I /usr/bin/gft
+The script. \fI/usr/bin/gfv\fR is a symbolic link to it.
+.TP
+.I /usr/share/gft/install-method
+Marker with exactly two lines, \fBinstall_method=apt\fR and
+\fBpackage=\fR\fIkind\fR, where \fIkind\fR is \fBdeb\fR (file of the GitHub
+release), \fBapt\fR (signed apt repository) or \fBppa\fR (Launchpad build).
+Its presence makes gft leave upgrades and removal to apt.
+.TP
+.I /usr/share/bash-completion/completions/gft
+Bash completion (also linked as \fIgfv\fR).
+.TP
+.I /usr/share/zsh/vendor-completions/_gft
+Zsh completion.
+.TP
+.I /usr/share/man/man1/gft.1.gz
+This manual page (also linked as \fIgfv.1.gz\fR).
+.TP
+.I /usr/share/doc/gft/copyright
+The MIT licence.
 .SH EXAMPLES
 .TP
 Get latest release info:

@@ -10,6 +10,34 @@ A lightweight command-line tool to fetch release information, list binary assets
 curl -fsSL https://cdn.sylvain.sh/bash/gft@latest/install.sh | sh
 ```
 
+### Via apt (Debian, Ubuntu)
+
+From the `.deb` attached to a [GitHub release](https://github.com/20syldev/gft/releases/latest):
+
+```bash
+sudo apt install ./gft_<version>_all.deb
+```
+
+The package is named `gft` and is the same for every architecture. It installs `/usr/bin/gft`, the `gfv` alias, the bash and zsh completions and the man page. It depends on `curl` and on `mawk` or `gawk`, and recommends `git` (for `gft stash`), `unzip` (for `.zip` installs) and `gh`; `xdg-utils` is only suggested (for `--open`).
+
+Each release ships `gft_<version>_checksums.txt` (the SHA-256 of the `.deb`) and its minisign signature `gft_<version>_checksums.txt.minisig`. To verify a download, put the three files in one folder, fetch the public key of this repository at the release tag and check:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/20syldev/gft/<version>/packaging/minisign.pub
+minisign -V -H -p minisign.pub -m gft_<version>_checksums.txt
+sha256sum --strict -c gft_<version>_checksums.txt
+```
+
+`-H` makes minisign refuse a legacy signature that is not made on the hash of the file; the release signature is, so keep it.
+
+A gft installed by apt is managed by apt:
+
+- `gft update`, `gft --upgrade`, `gft delete` and `gft uninstall` change nothing: they print the apt command to run instead (`sudo apt update && sudo apt upgrade gft`, or `sudo apt remove gft`) and exit with status 1. For the `.deb` of a GitHub release, the upgrade hint is to download the new `.deb` from the releases page and run `sudo apt install ./gft_<version>_all.deb`.
+- `gft --check-update` still works and shows that same hint instead of `gft --upgrade`.
+- Do not mix `curl | sh` and apt: `install.sh`, `update.sh` and `delete.sh` refuse to run while the `gft` package is installed, and print the apt command.
+
+The package marks itself with `/usr/share/gft/install-method`, which gft reads next to the real script (`../share/gft/install-method`). Installs made with `install.sh` or by hand have no such file and keep their usual `gft update` and `gft delete`.
+
 ### Manual installation
 
 ```bash
@@ -98,6 +126,8 @@ gft delete
 gft --check-update
 ```
 
+`gft --check-update` compares versions numerically: an older gft reports an update, an equal one is up to date, and a newer one (a development build) says it is newer than the latest release and is never downgraded by `gft update`. When gft is installed by apt, `gft update` and `gft delete` only print the apt command to use (see "Via apt").
+
 ### Stash management
 
 ```bash
@@ -136,13 +166,14 @@ gft stash clean -y
 - Open release page in browser (`--open`)
 - Source archive download (`--source zip|tar`)
 - Response cache with configurable TTL (`GFT_CACHE_TTL`)
-- Self-update (`gft update`) and uninstall (`gft delete`)
+- Self-update (`gft update`) and uninstall (`gft delete`), left to apt when installed as a package
 - Git stash management (`gft stash list|show|drop|clean`)
 - Works without GitHub authentication
 - Release data read through the `gh` CLI when it is installed and logged in, with the same JSON either way
 - Loading spinner on network operations (`GFT_NO_SPINNER` to disable)
 - Respects `NO_COLOR` convention and pipe detection
 - Automatic ASCII fallback on non-UTF-8 terminals (`GFT_ASCII` to force)
+- Debian package (`.deb`) with signed checksums
 - Bash and Zsh completion
 - Manpage (`man gft`)
 
@@ -162,8 +193,8 @@ Commands are only recognised as the first argument: `gft user/update` or `gft cl
 
 | Command                  | Description                          |
 | ------------------------ | ------------------------------------ |
-| `gft update`             | Upgrade gft to the latest version    |
-| `gft delete`             | Uninstall gft (alias: `uninstall`)   |
+| `gft update`             | Upgrade gft to the latest version (prints the apt command instead when installed by apt) |
+| `gft delete`             | Uninstall gft, alias: `uninstall` (prints the apt command instead when installed by apt) |
 | `gft stash [action]`     | Manage git stashes (list, show, drop, clean) |
 
 ## Options
@@ -173,8 +204,8 @@ Commands are only recognised as the first argument: `gft user/update` or `gft cl
 | `--`                    | End of options: what follows is a repo or tag  |
 | `-h, --help`            | Show help                                      |
 | `-v, --version`         | Show version                                   |
-| `--check-update`        | Check if a newer version of gft is available   |
-| `--upgrade`             | Upgrade gft to the latest version              |
+| `--check-update`        | Check if a newer version of gft is available (older, up to date or newer than the latest release) |
+| `--upgrade`             | Upgrade gft to the latest version (same as `gft update`) |
 | `--releases, --list`    | List all available releases                    |
 | `--assets`              | List release binary assets                     |
 | `--detect`              | Auto-detect OS/arch, highlight matching assets |
@@ -289,6 +320,7 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 - `curl` (for HTTP requests)
 - `bash` (>= 4.0)
 - Internet connection
+- `mawk` or `gawk`, and GNU `grep` (present on Debian and Ubuntu; the apt package depends on `curl` and `mawk | gawk`)
 - Optional: `gh` CLI, logged in, to read release data from the API (`--json`, `--releases --json`, `--notes`)
 
 ## Troubleshooting
