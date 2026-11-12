@@ -509,10 +509,22 @@ check_repository_exists() {
     local response
 
     spinner_start "Checking repository..."
-    response=$(curl -s -o /dev/null -w "%{http_code}" "$repo_url" 2>/dev/null)
+    response=$(curl -sL -o /dev/null -w "%{http_code} %{url_effective}" "$repo_url" 2>/dev/null)
     spinner_stop
 
+    # A renamed or transferred repository answers with a redirect: carry on with its new name.
+    local final="${response#* }"
+    response="${response%% *}"
+    final="${final#https://github.com/}"
+    final="$(cut -d/ -f1-2 <<< "${final%%[?#]*}")"
+
     if [ "$response" = "200" ]; then
+        if [[ "$final" != "$REPO" ]] && [[ "$final" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+            if [[ "${MODE_QUIET:-false}" != true ]] && [[ "${MODE_JSON:-false}" != true ]]; then
+                echo -e "${YELLOW}${SYM_BULLET} Repository moved:${NC} $REPO ${SYM_ARROW} ${GREEN}$final${NC}"
+            fi
+            REPO="$final"
+        fi
         return 0
     elif [ "$response" = "404" ]; then
         {
