@@ -258,8 +258,9 @@ typed as above; an empty array when the repository has no release.
 When set to any value, disables colored output.
 .TP
 .B GITHUB_TOKEN
-Optional GitHub personal access token. When set, gft uses it for API
-requests, increasing the rate limit from 60 to 5000 requests per hour.
+Read by
+.BR gh (1),
+when installed, to authenticate. gft itself does not use it.
 .TP
 .B GFT_CACHE_TTL
 Cache time-to-live in seconds (default: 300). Responses are cached in
@@ -353,6 +354,24 @@ Drop stash 0 without confirmation:
 .TP
 Delete all stashes:
 .B gft stash clean
+.SH BUGS
+Only public repositories are supported: gft checks the repository anonymously
+on github.com, so a private repository is rejected even when
+.B gh
+is logged in.
+.PP
+Without
+.BR \-\-pre ,
+a tag containing a slash is cut at the slash when the latest release is
+resolved; give the tag explicitly. With
+.BR \-\-pre ,
+.B \-q
+prints the tag percent-encoded as in the GitHub page (\fBcore%40...\fR), while
+.B \-\-json
+decodes it.
+.PP
+.B \-\-releases
+only covers the first page of releases (about ten).
 .SH SEE ALSO
 .BR curl (1),
 .BR gh (1)

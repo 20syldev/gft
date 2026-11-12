@@ -139,7 +139,7 @@ gft stash clean -y
 - Self-update (`gft update`) and uninstall (`gft delete`)
 - Git stash management (`gft stash list|show|drop|clean`)
 - Works without GitHub authentication
-- Transparent `gh` CLI fallback for private repos (when available)
+- Release data read through the `gh` CLI when it is installed and logged in, with the same JSON either way
 - Loading spinner on network operations (`GFT_NO_SPINNER` to disable)
 - Respects `NO_COLOR` convention and pipe detection
 - Automatic ASCII fallback on non-UTF-8 terminals (`GFT_ASCII` to force)
@@ -151,7 +151,7 @@ gft stash clean -y
 gft scrapes GitHub release pages directly, so it:
 
 - Requires **no authentication** (no token setup)
-- Has **no API rate limit** issues (scraping, not API)
+- Has **no API rate limit** issues without `gh` (it reads web pages, not the API)
 - Works on any machine with `curl` and `bash`
 
 When `gh` CLI is installed and authenticated, gft reads release data from the GitHub API through it. The JSON output has the same keys either way.
@@ -240,7 +240,7 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 | Variable         | Description                                           |
 | ---------------- | ----------------------------------------------------- |
 | `NO_COLOR`       | Set to any value to disable colors                    |
-| `GITHUB_TOKEN`   | Set for higher API rate limits (5000/hour vs 60/hour) |
+| `GITHUB_TOKEN`   | Read by `gh` (when installed) to authenticate; gft itself does not use it |
 | `GFT_CACHE_TTL`  | Cache TTL in seconds (default: 300)                   |
 | `GFT_NO_SPINNER` | Set to any value to disable the loading spinner       |
 | `GFT_ASCII`      | Set to any value to force ASCII-only symbols          |
@@ -289,14 +289,14 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 - `curl` (for HTTP requests)
 - `bash` (>= 4.0)
 - Internet connection
-- Optional: `gh` CLI for private repos and richer data
+- Optional: `gh` CLI, logged in, to read release data from the API (`--json`, `--releases --json`, `--notes`)
 
 ## Troubleshooting
 
 ### Repository not found
 
 - Check the spelling of username and repository
-- Make sure the repository is public (or use `gh auth login` for private repos)
+- Make sure the repository is public: private repositories are not supported, even with `gh`
 
 ### No release found
 
@@ -307,3 +307,10 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 
 - Check your internet connection
 - The specified tag may not exist
+
+## Known limitations
+
+- Public repositories only: gft checks that the repository exists anonymously on github.com, so private repositories are rejected even when `gh` is logged in.
+- Without `--pre`, resolving the latest release cuts a tag containing a `/` at the slash. Give the tag explicitly (`gft owner/repo vscope/1.2.3`).
+- With `--pre`, `-q` prints the tag as GitHub encodes it in the page (`core%4013.4.0`); `--json` decodes it (`core@13.4.0`).
+- `--releases` and `--releases --json` only cover the first page of releases (about ten).

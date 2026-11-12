@@ -151,7 +151,7 @@ show_help() {
     echo
     echo "Environment:"
     echo "  NO_COLOR           Set to disable colors"
-    echo "  GITHUB_TOKEN       Set for higher API rate limits"
+    echo "  GITHUB_TOKEN       Read by gh (when installed) to authenticate"
     echo "  GFT_CACHE_TTL      Cache TTL in seconds (default: 300)"
     echo "  GFT_NO_SPINNER     Set to disable the loading spinner"
     echo "  GFT_ASCII          Set to force ASCII-only symbols"
