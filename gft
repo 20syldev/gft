@@ -169,7 +169,7 @@ show_help() {
 # ─── Self-update check ───────────────────────────────────────────────
 
 GFT_REPO="20syldev/gft"
-CDN="https://cdn.sylvain.sh/bash"
+CDN="https://dropr.sylvain.sh/bash"
 
 # Print -1, 0 or 1 when version $1 is older than, equal to or newer than $2.
 version_cmp() {
