@@ -169,6 +169,7 @@ gft stash clean -y
 - Self-update (`gft update`) and uninstall (`gft delete`), left to apt when installed as a package
 - Git stash management (`gft stash list|show|drop|clean`)
 - Works without GitHub authentication
+- Follows renamed or transferred repositories and reports their new name
 - Release data read through the `gh` CLI when it is installed and logged in, with the same JSON either way
 - Loading spinner on network operations (`GFT_NO_SPINNER` to disable)
 - Respects `NO_COLOR` convention and pipe detection
@@ -253,7 +254,7 @@ Commands are only recognised as the first argument: `gft user/update` or `gft cl
 | Key            | Type            | Notes                                                    |
 | -------------- | --------------- | -------------------------------------------------------- |
 | `schema`       | integer         | `1`; raised only on an incompatible change               |
-| `repository`   | string          | As given on the command line                             |
+| `repository`   | string          | As given, or its current name if it was renamed or transferred |
 | `tag`          | string          | Release tag                                              |
 | `name`         | string          | Release title, or the tag when the release has none      |
 | `published_at` | string \| null  | Publication date, ISO 8601 UTC                           |
