@@ -30,7 +30,7 @@
 #   GFT_SRC       gft git checkout (default: the one that holds this script)
 #   MAINTAINER    changelog trailer, a user ID of SIGN_KEY (default: 20syldev <git@sylvain.sh>)
 #   PPA_REV       N in 0ppaN: raise it to rebuild the same upstream version (default: 1)
-#   PPA           upload target (default: ppa:20syl/gft)
+#   PPA           upload target (default: ppa:20syldev/gft)
 #   MESSAGE       changelog line (default: "New upstream release VERSION.")
 #   SOURCE_DATE_EPOCH  file times in the orig (default: commit time of the ref); also the
 #                 changelog date (default: now)
@@ -94,7 +94,7 @@ ppa_rev=${PPA_REV:-1}
 [[ $ppa_rev =~ ^[1-9][0-9]*$ ]] || die "PPA_REV must be a positive integer: $ppa_rev"
 maintainer=${MAINTAINER:-20syldev <git@sylvain.sh>}
 message=${MESSAGE:-New upstream release $version.}
-ppa=${PPA:-ppa:20syl/gft}
+ppa=${PPA:-ppa:20syldev/gft}
 sign_key=${SIGN_KEY:-}
 upstream=$version
 
