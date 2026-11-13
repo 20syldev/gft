@@ -2,7 +2,7 @@
 # Build the Ubuntu source packages of gft for the Launchpad PPA, one per series.
 #
 #   build-source.sh [options] SERIES...
-#   build-source.sh --version 1.1.1 jammy noble resolute
+#   build-source.sh --version 1.2.0 jammy noble resolute
 #   build-source.sh --dry-run noble
 #
 # Run by the maintainer only: debuild and dpkg-source delete their own temporary copies, and
@@ -85,7 +85,7 @@ if [[ -z $version ]]; then
 fi
 version=${version#v}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
-    die "the version must be a stable SemVer without 'v' (1.1.1); betas are not published to the PPA: $version"
+    die "the version must be a stable SemVer without 'v' (1.2.0); betas are not published to the PPA: $version"
 if [[ -z $ref ]]; then
     if [[ $dry_run == 1 ]]; then ref=HEAD; else ref=$version; fi
 fi

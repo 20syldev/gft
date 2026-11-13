@@ -13,7 +13,7 @@ GFT_DIR="$HOME/.config/gft"
 CACHE_DIR="$GFT_DIR/cache"
 CACHE_TTL="${GFT_CACHE_TTL:-300}"
 # Kept in sync with the VERSION file by the release bump.
-VERSION="1.1.0"
+VERSION="1.2.0"
 
 # Colors
 RED='\033[0;31m'
