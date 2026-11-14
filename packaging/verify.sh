@@ -70,8 +70,8 @@ command -v dpkg-deb > /dev/null 2>&1 || fail "dpkg-deb is not installed"
 # The files of the folder, and the version they carry.
 shopt -s nullglob dotglob
 files=("$dist"/*)
-shopt -u nullglob dotglob
 debs=("$dist"/gft_*_all.deb)
+shopt -u nullglob dotglob
 ((${#debs[@]} == 1)) || fail "expected one gft_<version>_all.deb in $dist, found ${#debs[@]}"
 debname=${debs[0]##*/}
 deb=$dist/$debname
