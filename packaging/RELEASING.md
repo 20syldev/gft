@@ -93,25 +93,25 @@ for a test.
 2. Create the signed tag and push it. Nothing else is pushed by the pipeline:
 
    ```sh
-   git tag -s 1.2.1 -m 1.2.1
-   git push <remote> 1.2.1
+   git tag -s 1.2.2 -m 1.2.2
+   git push <remote> 1.2.2
    ```
 
 3. Wait for the run of the workflow `Release` in the Actions tab. It must end green, including the
    step "Verify the package and the signature".
-4. Open the draft release `1.2.1`: it holds the `.deb`, the checksums file and its `.minisig`. Write
+4. Open the draft release `1.2.2`: it holds the `.deb`, the checksums file and its `.minisig`. Write
    the notes, keep the title field empty, and **publish**. To run it again for the same tag, delete the
    draft first.
 5. Check the published files from outside, with the committed public key:
 
    ```sh
-   minisign -V -H -p packaging/minisign.pub -m gft_1.2.1_checksums.txt
-   sha256sum --strict -c gft_1.2.1_checksums.txt
+   minisign -V -H -p packaging/minisign.pub -m gft_1.2.2_checksums.txt
+   sha256sum --strict -c gft_1.2.2_checksums.txt
    ```
 
    `-H` makes minisign refuse a legacy signature that is not made on the hash of the file; the
    release signature is, so keep it. A user does the same with the public key of the repository at
-   the tag, then installs with `sudo apt install ./gft_1.2.1_all.deb`.
+   the tag, then installs with `sudo apt install ./gft_1.2.2_all.deb`.
 6. Publish the PPA source packages (next section), and the apt variant once the apt repository
    exists.
 
@@ -173,7 +173,7 @@ steps below that mention it. Once it exists, it does not serve the file of the G
 serves a build of the same commit with `package=apt` in the marker:
 
 ```sh
-git checkout 1.2.1                      # the tagged commit, required by --kind apt
+git checkout 1.2.2                      # the tagged commit, required by --kind apt
 packaging/build-deb.sh --kind apt --out <folder>
 packaging/verify.sh --unsigned --kind apt <folder>
 ```
