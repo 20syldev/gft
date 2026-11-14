@@ -7,7 +7,7 @@ set -e
 
 # Refuse to run over a gft installed by dpkg.
 if command -v dpkg-query >/dev/null 2>&1 \
-    && dpkg-query -W -f='${Status}' gft 2>/dev/null | grep -q "install ok installed"; then
+    && dpkg-query -W -f='${Status}' gft 2>/dev/null | grep -q " ok installed$"; then
     printf "%s\n" "gft is installed through apt. To remove it: sudo apt remove gft"
     exit 1
 fi

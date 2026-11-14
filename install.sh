@@ -7,8 +7,12 @@ set -e
 
 # Refuse to run over a gft installed by dpkg.
 if command -v dpkg-query >/dev/null 2>&1 \
-    && dpkg-query -W -f='${Status}' gft 2>/dev/null | grep -q "install ok installed"; then
-    printf "%s\n" "gft is installed through apt. To upgrade it: sudo apt update && sudo apt upgrade gft"
+    && dpkg-query -W -f='${Status}' gft 2>/dev/null | grep -q " ok installed$"; then
+    if grep -qx "package=deb" /usr/share/gft/install-method 2>/dev/null; then
+        printf "%s\n" "gft is installed from a .deb. To upgrade it, download the new .deb from https://github.com/20syldev/gft/releases/latest and run: sudo apt install ./gft_<version>_all.deb"
+    else
+        printf "%s\n" "gft is installed through apt. To upgrade it: sudo apt update && sudo apt upgrade gft"
+    fi
     exit 1
 fi
 
