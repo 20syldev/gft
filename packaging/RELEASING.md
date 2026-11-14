@@ -112,8 +112,58 @@ for a test.
    `-H` makes minisign refuse a legacy signature that is not made on the hash of the file; the
    release signature is, so keep it. A user does the same with the public key of the repository at
    the tag, then installs with `sudo apt install ./gft_1.2.1_all.deb`.
-6. Once the apt repository exists, publish the apt variant (next section). Publish the PPA source
-   package (`packaging/ppa/`) when the PPA exists.
+6. Publish the PPA source packages (next section), and the apt variant once the apt repository
+   exists.
+
+## The PPA
+
+`ppa:20syldev/gft` serves the same files as the GitHub `.deb`, except `install-method`
+(`package=ppa`), as a source package that Launchpad builds for each series: `jammy` (22.04), `noble`
+(24.04) and `resolute` (26.04). `packaging/ppa/build-source.sh` prepares and signs it, and never uploads.
+It needs `devscripts`, `dpkg-dev`, `dput` and `gpg`, and the OpenPGP key that is registered on the
+Launchpad account (its fingerprint goes in `SIGN_KEY`, never in the repository).
+
+1. Do it after the tag is pushed and the GitHub release is published. A real build packages the tag
+   only: `--ref` must name the commit of the tag, and `--dry-run` is the only way to try another ref.
+2. Try the build without a key. It writes unsigned source packages outside the checkout, in a folder
+   of its own so that the real build of step 3 finds it empty, and uploads nothing:
+
+   ```sh
+   packaging/ppa/build-source.sh --dry-run --out /tmp/gft-ppa-dry jammy noble resolute
+   ```
+
+3. Build the signed source packages, one per series. `gpg` asks for the passphrase of the key for each
+   signature, unless `gpg-agent` still has it:
+
+   ```sh
+   SIGN_KEY=<fingerprint> packaging/ppa/build-source.sh jammy noble resolute
+   ```
+
+   The versions are `<version>-0ppa1~22.04.1`, `~24.04.1` and `~26.04.1`. The script makes
+   `gft_<version>.orig.tar.gz` from the tag, reproducibly, and the three series share it.
+
+4. Upload each `.changes` with the `dput` command the script prints at the end (`dput ppa:20syldev/gft
+   <file>`). `dput` warns that the package includes an `.orig.tar.gz` although the Debian revision
+   suggests it is not required: this is expected, every upload carries the same file, and Launchpad
+   accepts it when the content is identical. Each upload answers with a mail (Accepted or Rejected),
+   then one mail per build.
+5. Check the packages on the "Packages" page of the PPA. `add-apt-repository ppa:20syldev/gft` fails
+   with "This PPA does not support <series>" until the first source of that series is published, and
+   `apt install gft` works once its build is done.
+
+To publish the same upstream version again (a packaging fix, a series added later), raise the Debian
+revision with `PPA_REV`. The new version supersedes the old one in its series:
+
+```sh
+PPA_REV=2 SIGN_KEY=<fingerprint> packaging/ppa/build-source.sh --out /tmp/gft-ppa2 noble
+```
+
+This gives `<version>-0ppa2~24.04.1`. The script never reuses a series folder of a previous run, so
+give it a new `--out` or move the old folder away. The orig is made again from the tag and is
+byte-identical to the one already uploaded, which Launchpad requires: a different
+`gft_<version>.orig.tar.gz` for a version already uploaded is rejected for good, so a changed upstream
+always means a new version and a new tag. `MESSAGE` sets the changelog line (default:
+`New upstream release <version>.`).
 
 ## The apt variant (planned apt repository)
 
