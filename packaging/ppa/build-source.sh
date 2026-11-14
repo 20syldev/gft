@@ -19,7 +19,7 @@
 #
 # Options:
 #   --version X   upstream version to package (default: the VERSION file of the ref, or of HEAD)
-#   --ref REF     git ref to package (default: the tag X; with --dry-run: HEAD)
+#   --ref REF     git ref to package (default: the tag X; with --dry-run: HEAD; otherwise only X's commit)
 #   --out DIR     output directory, outside the checkout (default: /tmp/gft-ppa)
 #   --dry-run     unsigned source packages (-us -uc) and no key needed, to check the build only
 #   --no-build    prepare the orig and the trees only, run neither debuild nor dpkg-source
@@ -87,7 +87,7 @@ version=${version#v}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
     die "the version must be a stable SemVer without 'v' (1.2.1); betas are not published to the PPA: $version"
 if [[ -z $ref ]]; then
-    if [[ $dry_run == 1 ]]; then ref=HEAD; else ref=$version; fi
+    if [[ $dry_run == 1 ]]; then ref=HEAD; else ref=refs/tags/$version; fi
 fi
 
 ppa_rev=${PPA_REV:-1}
@@ -113,6 +113,12 @@ for cmd in "${needed[@]}"; do
 done
 git -C "$src" rev-parse --verify --quiet "$ref^{tree}" >/dev/null ||
     die "unknown git ref: $ref (tag the release first, or use --dry-run)"
+if [[ $dry_run != 1 ]]; then
+    tag_commit=$(git -C "$src" rev-parse --verify --quiet "refs/tags/$version^{commit}") ||
+        die "no tag $version (tag the release first, or use --dry-run)"
+    [[ $(git -C "$src" rev-parse "$ref^{commit}") == "$tag_commit" ]] ||
+        die "$ref is not the commit of tag $version: only the tag is packaged (--dry-run takes any ref)"
+fi
 if [[ $dry_run != 1 && $no_build != 1 ]]; then
     [[ -n $sign_key ]] || die "set SIGN_KEY to the OpenPGP key id registered on Launchpad (or use --dry-run)"
     gpg --batch --list-secret-keys "$sign_key" >/dev/null 2>&1 ||
