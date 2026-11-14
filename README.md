@@ -12,7 +12,20 @@ curl -fsSL https://dropr.sylvain.sh/bash/gft@latest/install.sh | sh
 
 ### Via apt (Debian, Ubuntu)
 
-From the `.deb` attached to a [GitHub release](https://github.com/20syldev/gft/releases/latest):
+From the [Launchpad PPA](https://launchpad.net/~20syldev/+archive/ubuntu/gft), for Ubuntu 22.04, 24.04 and 26.04 and their derivatives:
+
+```bash
+sudo add-apt-repository ppa:20syldev/gft
+sudo apt install gft
+```
+
+It is then upgraded like any other package:
+
+```bash
+sudo apt update && sudo apt upgrade gft
+```
+
+On Debian, or without the PPA, use the `.deb` attached to a [GitHub release](https://github.com/20syldev/gft/releases/latest):
 
 ```bash
 sudo apt install ./gft_<version>_all.deb
