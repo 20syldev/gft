@@ -988,7 +988,7 @@ plain_latest_tag() {
     printf '%s' "$(html_decode "$tag")"
 }
 
-# --releases --plain: "tag<TAB>date" for the first page (10 at most), newest first, "prerelease" in a third column.
+# --releases --plain: "tag<TAB>date" for the first page (10 at most), newest first, "prerelease" after the date.
 plain_releases() {
     local page rc=0
     page=$(cache_fetch "https://github.com/$REPO/releases") || rc=$?
@@ -1022,7 +1022,7 @@ plain_releases() {
         date="${date%%T*}"
         [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || date=""
         if [[ "$pre" == true ]]; then
-            printf '%s\t%s\tprerelease\n' "$decoded" "$date"
+            printf '%s\t%sprerelease\n' "$decoded" "${date:+$date }"
         else
             printf '%s\t%s\n' "$decoded" "$date"
         fi
