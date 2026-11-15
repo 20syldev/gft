@@ -35,14 +35,14 @@ _gft() {
         '--assets[List release binary assets]' \
         '--detect[Auto-detect OS/arch and suggest assets]' \
         '--get[Download asset matching a grep pattern]:pattern:' \
-        '--asset=-[Download the asset with exactly this file name]:asset name:' \
+        '--asset=[Download the asset with exactly this file name]:asset name:' \
         '--install[Download, extract and install binary]' \
         '--user[With --install: install to ~/.local/bin]' \
         '--force[Replace an existing file]' \
         '--plain[One entry per line with --releases or --assets]' \
         '--releases[List all available releases]' \
         '--list[List all available releases]' \
-        '--source=-[Download source archive non-interactively]:format:(zip tar)' \
+        '--source=[Download source archive non-interactively]:format:(zip tar)' \
         '--checksum=-[Verify download checksum]::enabled:(true false)' \
         '--verify=-[Verify download checksum]::enabled:(true false)' \
         '--notes[Show release notes]' \
@@ -50,7 +50,7 @@ _gft() {
         '--pre=-[Include pre-releases when resolving latest]::enabled:(true false)' \
         '--prerelease=-[Include pre-releases when resolving latest]::enabled:(true false)' \
         '--open[Open release page in browser]' \
-        '--dir=-[Write downloads and the installed binary to this folder]:folder:_files -/' \
+        '--dir=[Write downloads and the installed binary to this folder]:folder:_files -/' \
         '(-q --quiet)'{-q,--quiet}'[Output version only]' \
         '(-h --help)'{-h,--help}'[Show help]' \
         '(-v --version)'{-v,--version}'[Show version]' \

@@ -16,26 +16,30 @@ _gft() {
         [[ "${COMP_WORDS[i]}" == "--" ]] && return 0
     done
 
-    # --option=value: bash splits the word at the "=".
-    if [[ "$prev" == "=" ]]; then
-        case "${COMP_WORDS[COMP_CWORD-2]}" in
+    # --option=value: bash splits the word at the "=", which is a word of its own.
+    local after_eq=false
+    if [[ "$cur" == "=" ]]; then
+        after_eq=true
+        prev="${COMP_WORDS[COMP_CWORD-1]}"
+        cur=""
+    elif [[ "$prev" == "=" ]]; then
+        after_eq=true
+        prev="${COMP_WORDS[COMP_CWORD-2]}"
+    fi
+    if [[ "$after_eq" == true ]]; then
+        case "$prev" in
             --pre|--prerelease|--no-cache|--checksum|--verify)
                 COMPREPLY=($(compgen -W "true false" -- "$cur"))
-                return 0
                 ;;
             --source)
                 COMPREPLY=($(compgen -W "zip tar" -- "$cur"))
-                return 0
                 ;;
             --dir)
                 compopt -o filenames 2>/dev/null
                 mapfile -t COMPREPLY < <(compgen -d -- "$cur")
-                return 0
-                ;;
-            --asset)
-                return 0
                 ;;
         esac
+        return 0
     fi
 
     case "$prev" in
