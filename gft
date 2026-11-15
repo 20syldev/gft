@@ -126,6 +126,7 @@ show_help() {
     echo "  gft <user/repo> --assets         List release binary assets"
     echo "  gft <user/repo> --detect         Auto-detect best asset for your OS"
     echo "  gft <user/repo> --get <pattern>  Download asset matching pattern"
+    echo "  gft <user/repo> --asset=<name>   Download the asset with exactly this file name"
     echo "  gft <user/repo> --install        Download, extract and install binary"
     echo "  gft <user/repo> --notes          Show release notes"
     echo "  gft <user/repo> --json           Output as JSON"
@@ -145,17 +146,28 @@ show_help() {
     echo "  --check-update     Check if a newer version is available"
     echo "  --upgrade          Upgrade gft to the latest version"
     echo "  --pre              Include pre-releases when resolving latest"
-    echo "  --checksum         Verify download checksum after --get"
-    echo "  --dir <folder>     Write downloads (--get, --source, prompt) and --install binary there"
+    echo "  --checksum         Verify the SHA-256/512 of a download (integrity, not authenticity)"
+    echo "  --asset <name>     Exact asset file name for a download or --install (no pattern)"
+    echo "  --force            Replace an existing file (downloads never overwrite otherwise)"
+    echo "  --user             With --install: install to ~/.local/bin"
+    echo "  --plain            With --releases or --assets: one entry per line, nothing else"
+    echo "  --dir <folder>     Write downloads (--get, --asset, --source, prompt) and --install binary there"
     echo "  --open             Open release page in browser"
     echo "  --no-color         Disable colors"
     echo "  --no-cache         Bypass response cache"
     echo "  --clear-cache      Clear all cached responses"
     echo
+    echo "Forms: --dir, --source and --asset also take --option=value; --pre, --no-cache and"
+    echo "--checksum also take =true|false (1, 0, yes, no, on, off)."
+    echo
+    echo "Exit status: 0 success, 1 error (not found, network, refused), 2 usage error."
+    echo
     echo "Environment:"
     echo "  NO_COLOR           Set to disable colors"
     echo "  GITHUB_TOKEN       Read by gh (when installed) to authenticate"
     echo "  GFT_CACHE_TTL      Cache TTL in seconds (default: 300)"
+    echo "  GFT_CACHE_DIR      Cache folder (default: ~/.config/gft/cache)"
+    echo "  GFT_PLAIN_TIMEOUT  Time limit of --plain in seconds, all requests included (default: 8)"
     echo "  GFT_NO_SPINNER     Set to disable the loading spinner"
     echo "  GFT_ASCII          Set to force ASCII-only symbols"
     echo
@@ -1885,19 +1897,15 @@ prompt_download() {
     local dest
     if [[ $REPLY =~ ^[Zz]$ ]]; then
         echo -e "${SYM_ARROW} Downloading ZIP archive..."
-        dest=$(dest_path "$(basename "$ZIP_URL")")
-        if curl -L "$ZIP_URL" -o "$dest" 2>/dev/null; then
+        dest=$(dest_path "$(source_name zip)")
+        if fetch_file "$ZIP_URL" "$dest"; then
             echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
-        else
-            echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         fi
     elif [[ $REPLY =~ ^[Tt]$ ]]; then
         echo -e "${SYM_ARROW} Downloading TAR.GZ archive..."
-        dest=$(dest_path "$(basename "$TARBALL_URL")")
-        if curl -L "$TARBALL_URL" -o "$dest" 2>/dev/null; then
+        dest=$(dest_path "$(source_name tar.gz)")
+        if fetch_file "$TARBALL_URL" "$dest"; then
             echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
-        else
-            echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         fi
     fi
 }
