@@ -7,7 +7,7 @@ _gft() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    opts="--help --version --check-update --upgrade --assets --detect --get --install --releases --list --notes --json --quiet --pre --prerelease --source --checksum --verify --open --dir --no-color --no-cache --clear-cache --"
+    opts="--help --version --check-update --upgrade --assets --detect --get --asset --install --user --force --plain --releases --list --notes --json --quiet --pre --prerelease --source --checksum --verify --open --dir --no-color --no-cache --clear-cache --"
     cmds="update delete uninstall stash"
 
     # After "--" every word is a repository or tag.
@@ -16,7 +16,33 @@ _gft() {
         [[ "${COMP_WORDS[i]}" == "--" ]] && return 0
     done
 
+    # --option=value: bash splits the word at the "=".
+    if [[ "$prev" == "=" ]]; then
+        case "${COMP_WORDS[COMP_CWORD-2]}" in
+            --pre|--prerelease|--no-cache|--checksum|--verify)
+                COMPREPLY=($(compgen -W "true false" -- "$cur"))
+                return 0
+                ;;
+            --source)
+                COMPREPLY=($(compgen -W "zip tar" -- "$cur"))
+                return 0
+                ;;
+            --dir)
+                compopt -o filenames 2>/dev/null
+                mapfile -t COMPREPLY < <(compgen -d -- "$cur")
+                return 0
+                ;;
+            --asset)
+                return 0
+                ;;
+        esac
+    fi
+
     case "$prev" in
+        --asset)
+            # Asset names are not known offline
+            return 0
+            ;;
         --dir)
             compopt -o filenames 2>/dev/null
             mapfile -t COMPREPLY < <(compgen -d -- "$cur")
