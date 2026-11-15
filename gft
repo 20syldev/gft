@@ -1537,8 +1537,11 @@ open_url() {
 
 compare_releases() {
     local from="$1" to="$2"
+    # The page lists tags percent-encoded (astro%407): compare them decoded.
+    [[ "$from" == *%* ]] && from=$(url_decode "$from")
+    [[ "$to" == *%* ]] && to=$(url_decode "$to")
 
-    echo -e "${YELLOW}${SYM_BULLET} Comparing: ${CYAN}${from}${NC} ${SYM_ARROW} ${CYAN}${to}${NC}"
+    echo -e "${YELLOW}${SYM_BULLET} Comparing: ${CYAN}$(printable "$from")${NC} ${SYM_ARROW} ${CYAN}$(printable "$to")${NC}"
     echo
 
     # Fetch releases page to find tags in range
@@ -1554,10 +1557,11 @@ compare_releases() {
             local count=0
             echo -e "${BLUE}Releases in range:${NC}"
             while IFS= read -r tag; do
+                tag=$(url_decode "$tag")
                 if [[ "$tag" == "$to" ]]; then in_range=true; fi
                 if $in_range; then
                     ((count++)) || true
-                    echo -e "  ${SYM_TEE}${SYM_DASH} ${CYAN}${tag}${NC}"
+                    echo -e "  ${SYM_TEE}${SYM_DASH} ${CYAN}$(printable "$tag")${NC}"
                     if [[ "$tag" == "$from" ]]; then break; fi
                 fi
             done <<< "$all_tags"
@@ -1570,7 +1574,7 @@ compare_releases() {
 
     echo
     echo -e "${YELLOW}${SYM_BULLET} Compare on GitHub:${NC}"
-    echo -e "  ${CYAN}https://github.com/$REPO/compare/${from}...${to}${NC}"
+    echo -e "  ${CYAN}https://github.com/$REPO/compare/$(printable "$from")...$(printable "$to")${NC}"
 }
 
 # ─── Interactive download ────────────────────────────────────────────
@@ -2111,6 +2115,10 @@ fi
 
 # Dispatch by mode
 if [[ "$MODE_QUIET" == true ]]; then
+    if [[ "$NO_RELEASE" == true ]]; then
+        echo "gft: No release found for $REPO" >&2
+        exit 1
+    fi
     echo "$TAG"
     exit 0
 fi
