@@ -185,7 +185,7 @@ for args in "--plain -- o/r" "--plain --json --releases -- o/r" "--releases --as
     base
     # shellcheck disable=SC2086
     run $args
-    if [[ "$args" == *"--dir="* ]]; then want=1; else want=2; fi
+    want=2
     check "plain usage error '$args' is exit $want, stdout empty and no ANSI" \
         '[[ $RC -eq $want && -z "$OUT" ]] && ! has_esc "$T/out" && ! has_esc "$T/err"'
 done
@@ -291,7 +291,15 @@ check "--no-cache=perhaps is a usage error (2)" '[[ $RC -eq 2 ]]'
 run o/r -q --verify=none
 check "--verify=none is a usage error (2)" '[[ $RC -eq 2 ]]'
 run o/r -q --source=rar
-check "--source=rar keeps the 1.2 status 1" '[[ $RC -eq 1 ]]'
+check "--source=rar is a usage error (2)" '[[ $RC -eq 2 ]]'
+run o/r -q --source rar
+check "--source rar (separate form) keeps the 1.2 status 1" '[[ $RC -eq 1 ]]'
+run o/r -q --dir=
+check "--dir= is a usage error (2)" '[[ $RC -eq 2 ]]'
+run o/r -q --dir ""
+check "--dir '' (separate form) keeps the 1.2 status 1" '[[ $RC -eq 1 ]]'
+run o/r -q --pre=$'true\n'
+check "a boolean value with a trailing newline is refused" '[[ $RC -eq 2 ]]'
 mkdir -p "$T/home/x"
 run o/r --source=zip --dir="$T/missing"
 check "--dir to a missing folder is refused" '[[ $RC -eq 1 && "$OUT$ERR" == *"not a writable folder"* ]]'
@@ -824,6 +832,54 @@ mk_releases releases.html "v2.0.0|Two|2026-03-02"
 map_add https://github.com/o/r/releases 200 releases.html
 run --releases --plain -- o/r
 check "plain: a repository page that answers 500 is exit 1 even if /releases answers" '[[ $RC -eq 1 && -z "$OUT" ]]'
+
+# ─── second review: environment, compare link, decoded duplicates ───
+
+base
+mk_assets assets.html v2.0.0 ok.bin "caf%C3%A9.bin" "caf%c3%a9.bin" "dir/"
+assets_page
+run --assets --plain -- o/r
+check "plain assets: the same name written two ways appears once, an empty name never" '[[ "$OUT" == "café.bin${NL}ok.bin" ]]'
+mk_releases releases.html "fine%407|A|2026-01-01" "fine@7|B|2026-01-02" "v2.0.0|C|2026-01-03"
+map_add https://github.com/o/r/releases 200 releases.html
+run --releases --plain -- o/r
+check "plain releases: the same tag written two ways appears once" '[[ $(cut -f1 "$T/out" | grep -c "^fine@7$") -eq 1 ]]'
+
+base
+export GFT_CACHE_TTL=1.5
+mk_releases releases.html "v2.0.0|C|2026-01-03"
+map_add https://github.com/o/r/releases 200 releases.html
+run --releases --plain -- o/r
+run --releases --plain -- o/r
+check "GFT_CACHE_TTL: a garbage value is ignored silently" '[[ $RC -eq 0 && -z "$ERR" && "$OUT" == v2.0.0* ]]'
+export GFT_CACHE_TTL=08
+run --releases --plain -- o/r
+check "GFT_CACHE_TTL=08 is a decimal number" '[[ $RC -eq 0 && -z "$ERR" ]]'
+
+base
+mkdir -p "$T/cc"; echo x > "$T/cc/https_a"; chmod 000 "$T/cc"
+if [[ $(id -u) -ne 0 ]]; then
+    GFT_CACHE_DIR="$T/cc" run --clear-cache
+    check "--clear-cache: a folder that cannot be read is an error, not a success" '[[ $RC -ne 0 && "$OUT" != *"Cache cleared"* ]]'
+fi
+chmod 700 "$T/cc"
+
+base
+mk_releases releases.html "h%23x|A|2026-01-01" "v1.0.0|B|2026-01-02"
+map_add https://github.com/o/r/releases 200 releases.html
+run -- o/r 'h%23x..v1.0.0'
+check "compare: the link on GitHub keeps a # encoded" '[[ "$OUT" == *"compare/h%23x...v1.0.0"* ]]'
+run -- o/r '%zz..v1.0.0'
+check "compare: a % that is not an escape stays, silently" '[[ -z "$ERR" && "$OUT" == *"%zz"* ]]'
+
+base
+mk_assets assets.html v2.0.0 a.bin
+assets_page
+serve_file a.bin v2.0.0 A
+HOME= run o/r --asset=a.bin '--dir=~'
+check "--dir=~ without a home folder is refused" '[[ $RC -ne 0 && ! -e a.bin ]]'
+run o/r --plain=1 --releases -- o/r
+check "--plain=1 is an unknown option, and it writes to stderr only" '[[ $RC -ne 0 && -z "$OUT" ]]'
 
 # ─── 1.2.2 stays the same for the old options ────────────────────────
 
