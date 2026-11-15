@@ -10,8 +10,10 @@ set -e
 shopt -u patsub_replacement 2>/dev/null || true
 
 GFT_DIR="$HOME/.config/gft"
-CACHE_DIR="$GFT_DIR/cache"
+CACHE_DIR="${GFT_CACHE_DIR:-$GFT_DIR/cache}"
 CACHE_TTL="${GFT_CACHE_TTL:-300}"
+PLAIN=false
+PLAIN_END=0
 # Kept in sync with the VERSION file by the release bump.
 VERSION="1.2.2"
 
@@ -55,7 +57,7 @@ SPIN_DELAY="0.08"
 SPIN_PID=""
 
 spinner_supported() {
-    [[ -z "${GFT_NO_SPINNER:-}" ]] && [[ -t 2 ]]
+    [[ -z "${GFT_NO_SPINNER:-}" ]] && [[ "$PLAIN" != true ]] && [[ -t 2 ]]
 }
 
 spinner_start() {
@@ -441,6 +443,14 @@ cache_key() {
     printf '%s' "$1" | tr -cs 'a-zA-Z0-9._-' '_'
 }
 
+# Write a cache entry; a cache that cannot be written is never reported.
+cache_put() {
+    local file="$1" tmp="$1.$$"
+    { mkdir -p "$CACHE_DIR" && printf '%s' "$2" > "$tmp" && mv -f "$tmp" "$file"; } 2>/dev/null \
+        || rm -f "$tmp" 2>/dev/null || true
+}
+
+# Print the page at $1 from the cache or the network; an HTTP or network error caches nothing.
 cache_fetch() {
     local url="$1"
     local key
@@ -460,47 +470,66 @@ cache_fetch() {
         fi
     fi
 
-    local content
+    local content rc=0
     spinner_start "Fetching ${url#https://}..."
-    content=$(curl -sL --max-time 10 "$url" 2>/dev/null)
+    content=$(curl_page "$url") || rc=$?
     spinner_stop
 
+    if [[ $rc -ne 0 ]]; then
+        return "$rc"
+    fi
     if [[ "${NO_CACHE:-false}" != true ]] && [[ -n "$content" ]]; then
-        mkdir -p "$CACHE_DIR"
-        printf '%s' "$content" > "$cache_file"
+        cache_put "$cache_file" "$content"
     fi
 
     printf '%s' "$content"
 }
 
-# ─── Fetch utilities ─────────────────────────────────────────────────
-
-fetch_page() {
-    cache_fetch "$1"
+# Remove the cache entries (https_*), and the folder when it is gft's own and left empty.
+clear_cache() {
+    local f
+    for f in "$CACHE_DIR"/https_*; do
+        [[ -f "$f" ]] && rm -f -- "$f"
+    done
+    if [[ -z "${GFT_CACHE_DIR:-}" ]]; then
+        rmdir "$CACHE_DIR" 2>/dev/null || true
+    fi
 }
 
-fetch_api() {
-    local endpoint="$1"
-    local out
+# ─── Fetch utilities ─────────────────────────────────────────────────
 
-    spinner_start "Querying GitHub API..."
-    # Try gh cli first if available and authenticated
-    if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
-        if out=$(gh api "$endpoint" 2>/dev/null); then
-            spinner_stop
-            printf '%s' "$out"
-            return 0
-        fi
+# curl for pages: HTTP errors fail (-f), and --plain keeps to its global deadline.
+curl_page() {
+    local limit=10
+    if [[ "$PLAIN" == true ]]; then
+        limit=$(plain_budget) || return 28
     fi
-    # Fallback to curl with optional token
-    local headers=()
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        headers=(-H "Authorization: token $GITHUB_TOKEN")
+    curl -sLf --max-time "$limit" "$@" 2>/dev/null
+}
+
+# Milliseconds from a clock that only goes forward within the run.
+now_ms() {
+    if [[ -n "${EPOCHREALTIME:-}" ]]; then
+        local t="${EPOCHREALTIME/[.,]/}"
+        echo $(( t / 1000 ))
+    else
+        echo $(( SECONDS * 1000 ))
     fi
-    out=$(curl -sL --max-time 10 "${headers[@]}" \
-        "https://api.github.com/$endpoint" 2>/dev/null) || true
-    spinner_stop
-    printf '%s' "$out"
+}
+
+# Seconds left before the deadline of --plain (one deadline for the whole run), or fail.
+plain_budget() {
+    local left=$(( PLAIN_END - $(now_ms) ))
+    (( left >= 200 )) || return 1
+    printf '%d.%03d' $(( left / 1000 )) $(( left % 1000 ))
+}
+
+fetch_page() {
+    local rc=0
+    cache_fetch "$1" || rc=$?
+    # Outside --plain a failed fetch is just an empty page, as before.
+    [[ "$PLAIN" == true ]] && return "$rc"
+    return 0
 }
 
 # ─── Repository checks ──────────────────────────────────────────────
@@ -510,7 +539,7 @@ check_repository_exists() {
     local response
 
     spinner_start "Checking repository..."
-    response=$(curl -sL -o /dev/null -w "%{http_code} %{url_effective}" "$repo_url" 2>/dev/null)
+    response=$(curl_page -o /dev/null -w "%{http_code} %{url_effective}" "$repo_url") || true
     spinner_stop
 
     # A renamed or transferred repository answers with a redirect: carry on with its new name.
@@ -522,7 +551,7 @@ check_repository_exists() {
     if [ "$response" = "200" ]; then
         if [[ "$final" != "$REPO" ]] && [[ "$final" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
             if [[ "${MODE_QUIET:-false}" != true ]] && [[ "${MODE_JSON:-false}" != true ]]; then
-                echo -e "${YELLOW}${SYM_BULLET} Repository moved:${NC} $REPO ${SYM_ARROW} ${GREEN}$final${NC}"
+                echo -e "${YELLOW}${SYM_BULLET} Repository moved:${NC} $REPO ${SYM_ARROW} ${GREEN}$final${NC}" >&"$MSG_FD"
             fi
             REPO="$final"
         fi
@@ -560,8 +589,8 @@ get_latest_tag() {
     else
         # Stable only: follow /releases/latest redirect
         local resolved
-        resolved=$(curl -sL --max-time 10 -o /dev/null -w '%{url_effective}' \
-            "https://github.com/$REPO/releases/latest" 2>/dev/null)
+        resolved=$(curl_page -o /dev/null -w '%{url_effective}' \
+            "https://github.com/$REPO/releases/latest") || true
         local found_tag
         found_tag=$(echo "$resolved" | grep -oP '/releases/tag/\K[^/?]+') || true
         if [[ -n "$found_tag" ]]; then
@@ -1888,7 +1917,7 @@ while [[ $# -gt 0 ]]; do
         --clear-cache)
             setup_colors
             if [[ -d "$CACHE_DIR" ]]; then
-                rm -rf "$CACHE_DIR"
+                clear_cache
                 echo -e "${GREEN}${SYM_OK} Cache cleared${NC}"
             else
                 echo -e "${CYAN}${SYM_DOT} Cache is already empty${NC}"
