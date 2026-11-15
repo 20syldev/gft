@@ -116,8 +116,10 @@ run --releases --plain -- o/r
 check "plain releases: stable only, tab separated, newest first" \
     '[[ "$OUT" == "v2.0.0${TAB}2026-03-02${NL}v1.0.0${TAB}2025-12-24" && $RC -eq 0 ]]'
 run --releases --plain --pre -- o/r
-check "plain releases --pre: pre-release gets a third column" \
-    '[[ "$OUT" == "v2.0.0${TAB}2026-03-02${NL}v1.5.0-rc.1${TAB}2026-02-01${TAB}prerelease${NL}v1.0.0${TAB}2025-12-24" ]]'
+check "plain releases --pre: pre-release is marked after the date, still two columns" \
+    '[[ "$OUT" == "v2.0.0${TAB}2026-03-02${NL}v1.5.0-rc.1${TAB}2026-02-01 prerelease${NL}v1.0.0${TAB}2025-12-24" ]]'
+run --releases --plain --pre -- o/r
+check "plain releases --pre: never more than one tab per line" '! grep -q "$TAB.*$TAB" "$T/out"'
 run --releases --plain --pre=false -- o/r
 check "plain releases --pre=false behaves like no --pre" '[[ "$OUT" == "v2.0.0${TAB}2026-03-02${NL}v1.0.0${TAB}2025-12-24" ]]'
 run --releases --plain -- o/r
@@ -137,6 +139,7 @@ check "plain assets: sorted, no duplicate" \
 run --assets --detect --plain -- o/r
 check "plain assets --detect: recommended first with a second column, no package or checksum" \
     '[[ "$OUT" == "tool_linux_amd64.tar.gz${TAB}recommended${NL}checksums.txt${NL}tool_darwin_arm64.tar.gz${NL}tool_linux_amd64.deb" ]]'
+check "plain assets --detect: never more than one tab per line" '! grep -q "$TAB.*$TAB" "$T/out"'
 run --detect --plain -- o/r
 check "plain --detect alone lists assets" '[[ "$OUT" == tool_linux_amd64.tar.gz${TAB}recommended* ]]'
 map_add https://github.com/o/r/releases/expanded_assets/v1.0.0 200 assets.html
