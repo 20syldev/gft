@@ -90,14 +90,20 @@ gft cli/cli --assets
 # Auto-detect the right binary for your OS
 gft cli/cli --detect
 
-# Download a specific asset
+# Download a specific asset (--get takes a case-insensitive grep pattern)
 gft cli/cli --get "linux-amd64.deb"
+
+# Download the asset with exactly this file name (no pattern, no menu)
+gft cli/cli --asset=gh_2.104.0_linux_amd64.tar.gz
 
 # Download and verify checksum
 gft cli/cli --get "linux-amd64.deb" --checksum
 
 # Download, extract and install binary to PATH
 gft cli/cli --install
+
+# Install into ~/.local/bin, whatever is writable
+gft cli/cli --install --user
 
 # Choose where downloads and the installed binary go
 gft cli/cli --get linux-amd64.tar.gz --dir ~/Downloads
@@ -118,6 +124,10 @@ gft -- update/x
 
 # Compare two releases
 gft cli/cli v2.40.0..v2.50.0
+
+# One entry per line for programs (see "Scripting")
+gft --releases --plain -- cli/cli
+gft --assets --detect --plain -- cli/cli
 
 # Include pre-releases when resolving latest
 gft cli/cli --pre
@@ -170,6 +180,9 @@ gft stash clean -y
 - Checksum verification after download (`--checksum`)
 - Binary install to PATH (`--install`)
 - Single destination folder for downloads and installs (`--dir`)
+- Download by exact file name (`--asset=NAME`), never over an existing file unless `--force`
+- Install for the current user only (`--install --user`)
+- Line-oriented output for programs (`--plain`), with fixed exit codes
 - Release notes display (`--notes`)
 - Stable JSON output for scripting (`--json`), same keys with or without `gh`
 - Quiet mode — just the version string (`-q`)
@@ -223,19 +236,79 @@ Commands are only recognised as the first argument: `gft user/update` or `gft cl
 | `--releases, --list`    | List all available releases                    |
 | `--assets`              | List release binary assets                     |
 | `--detect`              | Auto-detect OS/arch, highlight matching assets |
-| `--get <pattern>`       | Download asset matching pattern                |
-| `--checksum, --verify`  | Verify SHA256 checksum after `--get`           |
+| `--get <pattern>`       | Download the asset matching a basic regular expression (`grep -i`); several matches ask which one |
+| `--asset <name>`        | Download the asset with exactly this file name, or install it with `--install` |
+| `--checksum, --verify`  | Verify the SHA-256 (or SHA-512) of a download from the release checksum file; fails when it cannot |
 | `--install`             | Download, extract and install binary to PATH   |
-| `--dir <folder>`        | Write `--get`/`--source` files, the interactive (z)ip/(t)ar download and the `--install` binary there |
+| `--user`                | With `--install`: install to `~/.local/bin` (never `/usr/local/bin`) |
+| `--force`               | Replace an existing file; downloads refuse to otherwise |
+| `--plain`               | With `--releases` or `--assets`: one entry per line, nothing else |
+| `--dir <folder>`        | Write `--get`/`--asset`/`--source` files, the interactive (z)ip/(t)ar download and the `--install` binary there |
 | `--notes`               | Show release notes                             |
 | `--json`                | Output as JSON                                 |
 | `-q, --quiet`           | Output version tag only                        |
-| `--pre, --prerelease`   | Include pre-releases when resolving latest     |
+| `--pre, --prerelease`   | Include pre-releases when resolving latest (with `--releases --plain`: list them) |
 | `--source zip\|tar`     | Download source archive non-interactively      |
 | `--open`                | Open release page in browser                   |
 | `--no-color`            | Disable colored output                         |
 | `--no-cache`            | Bypass response cache                          |
 | `--clear-cache`         | Clear all cached responses                     |
+
+`--dir`, `--source` and `--asset` also take the form `--option=value`, and `--pre`, `--no-cache` and `--checksum` (alias `--verify`) take `=true|false` (also `1`, `0`, `yes`, `no`, `on`, `off`, in any case). The last occurrence on the line wins, and an invalid value is a usage error (exit status 2). `--dir=~` and `--dir=~/folder` expand the tilde themselves. `--dir` still needs an existing, writable folder.
+
+## Scripting
+
+### Exit status
+
+| Status | Meaning |
+| ------ | ------- |
+| 0      | Success, including a list that is empty |
+| 1      | An error: repository or release not found, network error, a file that exists, a failed download or checksum |
+| 2      | A usage error: an invalid option value or combination, an `--asset` that is not a plain file name, several matches for `--get` without a terminal |
+
+Options that were already there keep the status 1 for their own usage errors (`--source rar`, an unknown option, a missing `--dir`).
+
+### `--plain`
+
+`gft --releases --plain [--pre[=BOOL]] -- user/repo` and `gft --assets --plain [--detect] [--pre[=BOOL]] -- user/repo [tag]` print one entry per line on standard output and nothing else: no title, no tip, no spinner, no colour. Messages and errors go to standard error. The standard input is never read.
+
+```
+$ gft --releases --plain -- cli/cli
+v2.104.0	2026-11-12
+v2.103.3	2026-10-26
+
+$ gft --assets --detect --plain -- cli/cli
+gh_2.104.0_linux_amd64.tar.gz	recommended
+gh_2.104.0_checksums.txt
+gh_2.104.0_linux_386.deb
+```
+
+- `--releases --plain`: the first page of releases (ten at most), newest first, as `tag<TAB>YYYY-MM-DD`, with a third column `prerelease` for a pre-release. Pre-releases only appear with `--pre`.
+- `--assets --plain`: the file names of the assets, decoded and without duplicates. With `--detect` the assets that fit this system come first, with `recommended` in a second column (packages, checksums and signatures are never recommended, as `--install` never picks them).
+- The words `recommended` and `prerelease` are fixed: they are not translated and not affected by the locale.
+- Names that cannot be told apart from a plain file name or tag are dropped: empty lines, control and invisible characters (including bidirectional marks and zero-width characters), bytes that are not valid UTF-8, tabs in a name, duplicates, tags with `..`, the tags `latest`, `main` and `master`, and for assets any name with a slash or a leading dot. At most 200 lines are printed.
+- It reads public pages only (never `gh` and never the API): nothing is listed for a private repository.
+- The whole run, every request included, has one time limit of 8 seconds (`GFT_PLAIN_TIMEOUT`).
+- Exit status: 0 with an empty output when there is nothing to list, 1 for a network error or a repository that does not exist, 2 for a usage error. `--plain` goes with `--releases` or `--assets` (`--detect` counts) and nothing else.
+
+### Downloads
+
+- `--asset=NAME` matches the file name exactly, after URL decoding: no pattern, no substring, no menu. A name that is not a plain file name (a slash, a leading dot, a control character) is refused. It works alone (download) and with `--install`. Without a match the status is 1.
+- `--get` is unchanged: its argument is a basic regular expression for `grep -i`, so `.` matches any character. When several assets match and there is no terminal, gft lists them on standard error and exits with status 2 instead of waiting for an answer.
+- A download never replaces an existing file (`--get`, `--asset`, `--source`): pass `--force`. `--install` still replaces the installed binary, which is how an update works. A failed or interrupted download leaves nothing behind, and an HTTP error page is never saved as the file.
+- `--source` names the file after the tag, made harmless: a slash or any character outside letters, digits and `._@+-` becomes `_`, and leading dots are removed.
+- `--install` without `--asset` or `--get` never picks a package (`.deb`, `.rpm`, `.apk`, `.pkg`, `.msi`, `.dmg`) or a checksum or signature file.
+- `--install --user` installs into `~/.local/bin`, created if needed. Without it gft keeps its order: `/usr/local/bin` when writable, else `~/.local/bin`, else `~/bin`. `--user` and `--dir` cannot be combined.
+
+### Checksums
+
+`--checksum` checks the download against a checksum file of the same release, and fails (non-zero status) whenever it cannot: no checksum file, the file missing from the list, no hash found, a hash that is neither SHA-256 nor SHA-512, no `sha256sum` or `shasum` (`sha512sum` for SHA-512), or the checksum file not downloadable. On a mismatch the downloaded file is removed. The names in the list are compared exactly (a leading `*` is ignored), and a file that holds a single hash counts only for the file it is named after (`app.tar.gz.sha256`). This proves that the download is intact, not that it is authentic: the list comes from the same release.
+
+### Other
+
+- `-q` on a repository without any release prints `No release found` on standard error and exits with status 1, instead of printing `main`.
+- `gft user/repo v1..v2` compares the decoded tags, so scoped tags such as `astro@7.0.0` are found.
+- `--` ends the options: a tag such as `--upgrade` or `update` is then a tag. `update`, `delete`, `uninstall` and `stash` are commands only as the first argument.
 
 ## JSON output
 
@@ -287,6 +360,8 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 | `NO_COLOR`       | Set to any value to disable colors                    |
 | `GITHUB_TOKEN`   | Read by `gh` (when installed) to authenticate; gft itself does not use it |
 | `GFT_CACHE_TTL`  | Cache TTL in seconds (default: 300)                   |
+| `GFT_CACHE_DIR`  | Folder of the response cache (default: `~/.config/gft/cache`); `--clear-cache` only removes the cache entries (`https_*`) it holds |
+| `GFT_PLAIN_TIMEOUT` | Time limit of `--plain` in seconds, for the whole run (default: 8) |
 | `GFT_NO_SPINNER` | Set to any value to disable the loading spinner       |
 | `GFT_ASCII`      | Set to any value to force ASCII-only symbols          |
 

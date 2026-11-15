@@ -69,20 +69,59 @@ highlighting the recommended download in the asset list.
 .TP
 .BI \-\-get " pattern"
 Download the asset whose name matches
-.IR pattern .
-If multiple assets match, an interactive selection prompt is shown.
+.IR pattern ,
+a basic regular expression matched with
+.BR "grep \-i" .
+If multiple assets match, an interactive selection prompt is shown; without a
+terminal, gft lists the matches on standard error and exits with status 2.
+.TP
+.BI \-\-asset " name"
+Download the asset whose file name is exactly
+.IR name ,
+after URL decoding. No pattern, no substring, no menu. The name must be a plain
+file name (no slash, no leading dot). Used alone it downloads the asset; with
+.B \-\-install
+it installs it. Without a match gft exits with status 1.
+.TP
+.B \-\-force
+Replace an existing file. Without it,
+.BR \-\-get ,
+.B \-\-asset
+and
+.B \-\-source
+refuse to overwrite a file. (\fB\-\-install\fR always replaces an installed binary.)
+.TP
+.B \-\-user
+With
+.BR \-\-install :
+install into \fI~/.local/bin\fR, created if needed, never into
+\fI/usr/local/bin\fR. Cannot be combined with
+.BR \-\-dir .
+.TP
+.B \-\-plain
+With
+.B \-\-releases
+or
+.BR \-\-assets :
+print one entry per line on standard output and nothing else. See
+.BR "PLAIN OUTPUT" .
 .TP
 .B \-\-install
 Download, extract, and install the binary to your PATH automatically
 (\fI/usr/local/bin\fR when writable, else \fI~/.local/bin\fR or \fI~/bin\fR,
 or the
 .B \-\-dir
-folder). The download and its extraction happen in a temporary folder.
-Uses
+folder, or \fI~/.local/bin\fR with
+.BR \-\-user ).
+The download and its extraction happen in a temporary folder. An installed
+binary is replaced. Uses
 .B \-\-detect
 to find the right asset when no
 .B \-\-get
-pattern is given.
+or
+.B \-\-asset
+is given; it never picks a package (\fI.deb .rpm .apk .pkg .msi .dmg\fR) or a
+checksum or signature file.
 .TP
 .BR \-\-releases ", " \-\-list
 List all available releases for the repository. With
@@ -99,15 +138,24 @@ or
 (tar.gz) as argument. Suitable for use in scripts.
 .TP
 .BR \-\-checksum ", " \-\-verify
-Verify the SHA-256 checksum of the downloaded file after
-.B \-\-get
+Verify the SHA-256 (or SHA-512) checksum of the downloaded file after
+.BR \-\-get ,
+.B \-\-asset
 or
 .BR \-\-install .
-Looks for a companion checksum file among the release assets.
+Looks for a companion checksum file among the release assets. It fails (non-zero
+status) whenever the check cannot be made: no checksum file, the file missing
+from the list, no hash, or no
+.BR sha256sum (1)
+or
+.BR shasum (1);
+a mismatch removes the downloaded file. This checks integrity, not
+authenticity: the list comes from the same release.
 .TP
 .BI \-\-dir " folder"
 Write the files of
-.B \-\-get
+.BR \-\-get ,
+.B \-\-asset
 and
 .BR \-\-source ,
 the interactive (z)ip/(t)ar download, and the binary of
@@ -137,7 +185,8 @@ Output the version tag only. Useful for scripting:
 .TP
 .B \-\-prerelease
 .PD
-Include pre-releases when resolving the latest tag.
+Include pre-releases when resolving the latest tag (and in
+.BR "\-\-releases \-\-plain" ).
 By default, gft resolves to the latest stable release.
 .TP
 .B \-\-open
@@ -153,7 +202,20 @@ environment variable.
 Bypass the local response cache for this invocation.
 .TP
 .B \-\-clear\-cache
-Clear all cached responses and exit.
+Clear all cached responses and exit. Only cache entries are removed, even in a
+folder set with
+.BR GFT_CACHE_DIR .
+.PP
+.BR \-\-dir ,
+.B \-\-source
+and
+.B \-\-asset
+also take the form
+\fB\-\-\fIoption\fB=\fIvalue\fR. \fB\-\-pre\fR, \fB\-\-no\-cache\fR and
+\fB\-\-checksum\fR (alias \fB\-\-verify\fR) take \fB=true\fR or \fB=false\fR
+(also 1, 0, yes, no, on, off, in any case). The last occurrence on the line
+wins, and an invalid value is a usage error (status 2). \fB\-\-dir=\fR expands a
+leading \fB~\fR or \fB~/\fR itself.
 .SH COMMANDS
 Commands are only recognised as the first argument: a repository or tag named
 .BR update ,
@@ -278,6 +340,65 @@ minisign \-V \-H \-p minisign.pub \-m gft_<version>_checksums.txt
 sha256sum \-\-strict \-c gft_<version>_checksums.txt
 .fi
 .RE
+.SH PLAIN OUTPUT
+.B gft \-\-releases \-\-plain
+.RB [ \-\-pre ]
+.B \-\-
+.I user/repo
+and
+.B gft \-\-assets \-\-plain
+.RB [ \-\-detect ]
+.RB [ \-\-pre ]
+.B \-\-
+.I user/repo
+.RI [ tag ]
+print one entry per line on standard output and nothing else (no title, tip,
+spinner or colour); messages go to standard error. They read the public pages
+only, never
+.BR gh ,
+so nothing is listed for a private repository. The whole run has one time limit
+(\fBGFT_PLAIN_TIMEOUT\fR, 8 seconds).
+.TP
+.B \-\-releases \-\-plain
+The first page of releases (ten at most), newest first:
+\fItag\fR, a tab, \fIYYYY\-MM\-DD\fR, and a third column \fBprerelease\fR for a
+pre-release. Pre-releases appear only with
+.BR \-\-pre .
+.TP
+.B \-\-assets \-\-plain
+The decoded file names of the assets, without duplicates. With
+.B \-\-detect
+the assets that fit this system come first, followed by a tab and
+.BR recommended .
+The words \fBrecommended\fR and \fBprerelease\fR are fixed, never translated.
+.PP
+Dropped from the output: empty lines, control and invisible characters
+(including bidirectional marks and zero-width characters), invalid UTF-8, tabs in
+a name, duplicates, tags containing \fB..\fR, the tags \fBlatest\fR,
+\fBmain\fR and \fBmaster\fR, and for assets any name with a slash or a leading
+dot. At most 200 lines are printed. The status is 0 with an empty output when
+there is nothing to list, 1 for a network error or an unknown repository, 2 for a
+usage error.
+.SH EXIT STATUS
+.TP
+.B 0
+Success, including an empty list.
+.TP
+.B 1
+An error: repository or release not found, network error, a file that already
+exists, a failed download or checksum.
+.TP
+.B 2
+A usage error: an invalid option value or combination, an
+.B \-\-asset
+that is not a plain file name, several matches for
+.B \-\-get
+without a terminal.
+.PP
+Options that were already there keep the status 1 for their own usage errors.
+.B \-q
+on a repository without any release prints \fBNo release found\fR on standard
+error and exits with status 1.
 .SH JSON OUTPUT
 .B gft
 .I user/repo
@@ -348,6 +469,16 @@ when installed, to authenticate. gft itself does not use it.
 Cache time-to-live in seconds (default: 300). Responses are cached in
 .I ~/.config/gft/cache/
 to avoid redundant network requests.
+.TP
+.B GFT_CACHE_DIR
+Folder of the response cache instead of
+.IR ~/.config/gft/cache .
+A cache that cannot be written is never reported.
+.TP
+.B GFT_PLAIN_TIMEOUT
+Time limit, in seconds, of a whole
+.B \-\-plain
+run, every request included (default: 8).
 .TP
 .B GFT_NO_SPINNER
 When set to any value, disables the loading spinner shown during network
@@ -442,6 +573,15 @@ Treat everything after \-\- as a repository or tag:
 .TP
 Download and verify checksum:
 .B gft cli/cli --get linux-amd64.tar.gz --checksum
+.TP
+Download the asset with exactly this name:
+.B gft cli/cli --asset=gh_2.104.0_linux_amd64.tar.gz
+.TP
+Install for the current user only:
+.B gft cli/cli --install --user
+.TP
+List releases and assets for a program:
+.B gft --releases --plain -- cli/cli
 .TP
 Compare two releases:
 .B gft cli/cli v2.40.0..v2.50.0
