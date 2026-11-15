@@ -700,14 +700,16 @@ display_info() {
 
 get_assets() {
     local assets_url="https://github.com/$REPO/releases/expanded_assets/$TAG"
-    local response
-    response=$(fetch_page "$assets_url")
+    local response rc=0
+    response=$(fetch_page "$assets_url") || rc=$?
 
+    # 2 is a failed fetch (only --plain tells it apart), 1 an empty page.
+    [[ $rc -eq 0 ]] || return 2
     if [[ -z "$response" ]]; then
         return 1
     fi
 
-    echo "$response" | grep -oP 'href="\K/[^"]+/releases/download/[^"]+' | sort -u
+    echo "$response" | grep -oP 'href="\K/[^"]+/releases/download/[^"]+' | sed 's/&amp;/\&/g' | sort -u
 }
 
 list_assets() {
@@ -1023,7 +1025,8 @@ html_decode() {
 }
 
 url_decode() {
-    printf '%b' "${1//%/\\x}"
+    local s="${1//\\/\\\\}"
+    printf '%b' "${s//%/\\x}"
 }
 
 trim() {
@@ -1209,75 +1212,154 @@ output_json() {
 
 # ─── Checksum verification ───────────────────────────────────────────
 
-sha256_cmd() {
-    if command -v sha256sum &>/dev/null; then
-        echo "sha256sum"
+# Print the command that hashes with SHA-<bits> ("sha256sum", "shasum -a 256", ...), or nothing.
+sha_cmd() {
+    if command -v "sha${1}sum" &>/dev/null; then
+        echo "sha${1}sum"
     elif command -v shasum &>/dev/null; then
-        echo "shasum -a 256"
+        echo "shasum -a $1"
     else
         echo ""
     fi
 }
 
+# Print the asset path (from the list $2) whose decoded file name equals $1, ignoring case.
+find_asset_named() {
+    local want path name
+    want=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        name=$(url_decode "${path##*/}" | tr '[:upper:]' '[:lower:]')
+        if [[ "$name" == "$want" ]]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done <<< "$2"
+    return 1
+}
+
+# Print the asset path (from the list $2) whose decoded file name is exactly $1.
+find_asset_exact() {
+    local path
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if [[ "$(url_decode "${path##*/}")" == "$1" ]]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done <<< "$2"
+    return 1
+}
+
+# Find the checksum file of $1 (a decoded file name) among the asset paths $2.
 find_checksum_asset() {
     local filename="$1"
     local assets="$2"
-    local patterns=("${filename}.sha256" "${filename}.sha256sum" "${filename}.sha512"
-                    "SHA256SUMS" "checksums.txt" "SHASUMS256.txt" "sha256sums.txt")
+    local candidate path name
 
-    for pattern in "${patterns[@]}"; do
-        local match
-        match=$(echo "$assets" | grep -iF "/$pattern" | head -1) || true
-        if [[ -n "$match" ]]; then
-            echo "$match"
+    for candidate in "${filename}.sha256" "${filename}.sha256sum" "${filename}.sha512" \
+        "SHA256SUMS" "checksums.txt" "SHASUMS256.txt" "sha256sums.txt"; do
+        if path=$(find_asset_named "$candidate" "$assets"); then
+            echo "$path"
             return 0
         fi
     done
 
-    echo "$assets" | grep -iE '\.(sha256|sha512|sha256sum)$|checksums' | head -1 || true
+    # Any list of checksums of the release; never the checksum file of another file.
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        name=$(url_decode "${path##*/}" | tr '[:upper:]' '[:lower:]')
+        case "$name" in
+            *checksums*|*sha256sums*|*sha512sums*|*shasums*)
+                echo "$path"
+                return 0
+                ;;
+        esac
+    done <<< "$assets"
+    return 0
 }
 
+# Print the hash that the checksum file $1 gives for the file name $2; a lone hash counts only when $3 is true.
+checksum_for() {
+    tr -d '\r' < "$1" | awk -v name="$2" -v single="$3" '
+        NF == 0 { next }
+        {
+            line = $0
+            if (line ~ /^SHA(256|512) \(.*\) = [0-9A-Fa-f]+$/) {
+                h = line; sub(/.* = /, "", h)
+                f = line; sub(/^SHA(256|512) \(/, "", f); sub(/\) = [0-9A-Fa-f]+$/, "", f)
+                if (f == name) { print h; found = 1; exit }
+                next
+            }
+            h = $1
+            f = line; sub(/^[^ \t]+[ \t]+/, "", f)
+            if (f == line) {
+                if (single == "true" && h ~ /^[0-9A-Fa-f]+$/) { lone = h; nlone++ }
+                next
+            }
+            sub(/^\*/, "", f); sub(/^\.\//, "", f)
+            if (f == name) { print h; found = 1; exit }
+        }
+        END { if (!found && nlone == 1) print lone }'
+}
+
+# Check the file $1 against the checksum file at the asset path $2, where it is listed as $3 (integrity only).
 verify_checksum() {
-    local file="$1"
-    local checksum_path="$2"
+    local file="$1" checksum_path="$2" name="$3"
     local checksum_url="https://github.com${checksum_path}"
-    local filename
-    filename=$(basename "$file")
 
     echo -e "${SYM_ARROW} Verifying checksum..."
 
-    local cmd
-    cmd=$(sha256_cmd)
-    if [[ -z "$cmd" ]]; then
-        echo -e "${YELLOW}${SYM_FAIL} No sha256sum/shasum found, skipping verification${NC}"
-        return 0
-    fi
-
     local tmp_checksum
     tmp_checksum=$(mktemp)
-    if ! curl -sL --max-time 10 "$checksum_url" -o "$tmp_checksum"; then
+    if ! curl -fsL --max-time 10 "$checksum_url" -o "$tmp_checksum"; then
         rm -f "$tmp_checksum"
-        echo -e "${YELLOW}${SYM_FAIL} Could not download checksum file, skipping${NC}"
-        return 0
+        echo -e "${RED}${SYM_FAIL} Could not download the checksum file${NC}"
+        return 1
     fi
 
+    local single=false
+    case "$(url_decode "${checksum_path##*/}" | tr '[:upper:]' '[:lower:]')" in
+        "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')".sha*) single=true ;;
+    esac
     local expected_hash
-    expected_hash=$(grep -i "$filename" "$tmp_checksum" | awk '{print $1}' | head -1) || true
+    expected_hash=$(checksum_for "$tmp_checksum" "$name" "$single") || true
     rm -f "$tmp_checksum"
 
     if [[ -z "$expected_hash" ]]; then
-        echo -e "${YELLOW}${SYM_FAIL} File not found in checksum list, skipping${NC}"
-        return 0
+        echo -e "${RED}${SYM_FAIL} ${name} is not in the checksum list${NC}"
+        return 1
+    fi
+    expected_hash=$(printf '%s' "$expected_hash" | tr '[:upper:]' '[:lower:]')
+
+    local bits
+    case "${#expected_hash}" in
+        64) bits=256 ;;
+        128) bits=512 ;;
+        *) bits="" ;;
+    esac
+    if [[ -z "$bits" ]] || [[ ! "$expected_hash" =~ ^[0-9a-f]+$ ]]; then
+        echo -e "${RED}${SYM_FAIL} The checksum of ${name} is not a SHA-256 or SHA-512 value${NC}"
+        return 1
+    fi
+
+    local cmd
+    cmd=$(sha_cmd "$bits")
+    if [[ -z "$cmd" ]]; then
+        echo -e "${RED}${SYM_FAIL} No sha${bits}sum or shasum found, cannot verify the download${NC}"
+        return 1
     fi
 
     local actual_hash
     # $cmd is unquoted on purpose ("shasum -a 256"); the path stays one word.
-    actual_hash=$($cmd "$file" | awk '{print $1}')
+    actual_hash=$($cmd -- "$file" | awk '{print $1}') || true
+    actual_hash=$(printf '%s' "$actual_hash" | tr '[:upper:]' '[:lower:]')
 
     if [[ "$actual_hash" == "$expected_hash" ]]; then
-        echo -e "${GREEN}${SYM_OK} Checksum verified${NC}"
+        echo -e "${GREEN}${SYM_OK} Checksum verified${NC} (integrity, not authenticity)"
     else
-        echo -e "${RED}${SYM_FAIL} Checksum mismatch!${NC}"
+        rm -f -- "$file"
+        echo -e "${RED}${SYM_FAIL} Checksum mismatch, the downloaded file was removed${NC}"
         echo -e "  Expected: ${CYAN}${expected_hash}${NC}"
         echo -e "  Got:      ${RED}${actual_hash}${NC}"
         return 1
@@ -1285,6 +1367,39 @@ verify_checksum() {
 }
 
 # ─── Direct asset download ───────────────────────────────────────────
+
+# Download $1 to $2, never over an existing file unless --force.
+fetch_file() {
+    local url="$1" dest="$2"
+    if [[ -d "$dest" ]] && [[ ! -L "$dest" ]]; then
+        echo -e "${RED}${SYM_FAIL} Cannot write ${dest}: it is a folder${NC}"
+        return 1
+    fi
+    if [[ -e "$dest" || -L "$dest" ]] && [[ "$FORCE" != true ]]; then
+        echo -e "${RED}${SYM_FAIL} ${dest} already exists, use --force to replace it${NC}"
+        return 1
+    fi
+    local part="$dest.gft-part.$$"
+    if curl -fL --progress-bar "$url" -o "$part" && mv -f -- "$part" "$dest"; then
+        return 0
+    fi
+    rm -f -- "$part"
+    echo -e "${RED}${SYM_FAIL} Download failed${NC}"
+    return 1
+}
+
+# True for a file that `--install` may pick on its own: not a package, a checksum or a signature.
+auto_pick_ok() {
+    local n
+    n=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$n" in
+        *.deb|*.rpm|*.apk|*.pkg|*.msi|*.dmg) return 1 ;;
+        *.sha256|*.sha256sum|*.sha512|*.sha1|*.md5|*.sum|*.sig|*.asc|*.minisig) return 1 ;;
+        *.pem|*.crt|*.cert|*.sbom|*.sbom.json|*.spdx|*.spdx.json|*.sigstore|*.sigstore.json) return 1 ;;
+        *.intoto.jsonl|*checksums*|*sha256sums*|*sha512sums*|*shasums*) return 1 ;;
+    esac
+    return 0
+}
 
 download_asset() {
     local pattern="$1"
@@ -1297,7 +1412,11 @@ download_asset() {
     fi
 
     local matches
-    matches=$(echo "$assets" | grep -i "$pattern") || true
+    if [[ -n "$ASSET_NAME" ]]; then
+        matches=$(find_asset_exact "$ASSET_NAME" "$assets") || true
+    else
+        matches=$(echo "$assets" | grep -i -e "$pattern") || true
+    fi
 
     local match_count=0
     if [[ -n "$matches" ]]; then
@@ -1305,10 +1424,24 @@ download_asset() {
     fi
 
     if [[ $match_count -eq 0 ]]; then
-        echo -e "${RED}${SYM_FAIL} No assets found matching '${pattern}'${NC}"
+        if [[ -n "$ASSET_NAME" ]]; then
+            echo -e "${RED}${SYM_FAIL} No asset named '$(printable "$ASSET_NAME")'${NC}"
+        else
+            echo -e "${RED}${SYM_FAIL} No assets found matching '$(printable "$pattern")'${NC}"
+        fi
         echo -e "  Use ${YELLOW}--assets${NC} to list available assets"
         return 1
     elif [[ $match_count -gt 1 ]]; then
+        if [[ ! -t 0 ]]; then
+            {
+                echo -e "${YELLOW}${SYM_BULLET} Multiple assets match '$(printable "$pattern")':${NC}"
+                while IFS= read -r match; do
+                    echo "  $(printable "$(url_decode "$(basename "$match")")")"
+                done <<< "$matches"
+                echo -e "  Name one of them with ${YELLOW}--asset=NAME${NC}"
+            } >&2
+            return 2
+        fi
         echo -e "${YELLOW}${SYM_BULLET} Multiple assets match '${pattern}':${NC}"
         local i=0
         while IFS= read -r match; do
@@ -1316,30 +1449,42 @@ download_asset() {
             echo -e "  ${BLUE}${i}${NC}) $(basename "$match")"
         done <<< "$matches"
         echo
+        local selection
         read -p "Select (1-${i}): " -r selection
+        if [[ ! "$selection" =~ ^[0-9]+$ ]] || (( selection < 1 || selection > i )); then
+            echo -e "${RED}${SYM_FAIL} Invalid selection${NC}"
+            return 1
+        fi
         matches=$(echo "$matches" | sed -n "${selection}p")
     fi
 
     local url="https://github.com${matches}"
-    local filename dest
+    local filename name dest
     filename=$(basename "$matches")
+    name=$(url_decode "$filename")
+    # An exact name is saved under that name; a pattern keeps the name of the link.
+    [[ -n "$ASSET_NAME" ]] && filename="$ASSET_NAME"
+    if [[ -z "$filename" || "$filename" == "." || "$filename" == ".." ]]; then
+        echo -e "${RED}${SYM_FAIL} The asset has no usable file name${NC}"
+        return 1
+    fi
     dest=$(dest_path "$filename")
 
-    echo -e "${SYM_ARROW} Downloading ${CYAN}${filename}${NC}..."
-    if curl -L --progress-bar "$url" -o "$dest"; then
+    echo -e "${SYM_ARROW} Downloading ${CYAN}$(printable "$filename")${NC}..."
+    if fetch_file "$url" "$dest"; then
         echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
     else
-        echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         return 1
     fi
 
     if [[ "${MODE_VERIFY:-false}" == true ]]; then
         local checksum_path
-        checksum_path=$(find_checksum_asset "$filename" "$assets")
+        checksum_path=$(find_checksum_asset "$name" "$assets")
         if [[ -n "$checksum_path" ]]; then
-            verify_checksum "$dest" "$checksum_path"
+            verify_checksum "$dest" "$checksum_path" "$name" || return 1
         else
-            echo -e "${YELLOW}${SYM_FAIL} No checksum file found for ${filename}${NC}"
+            echo -e "${RED}${SYM_FAIL} No checksum file found for $(printable "$name")${NC}"
+            return 1
         fi
     fi
 }
@@ -1353,10 +1498,22 @@ dest_path() {
     fi
 }
 
+# File name of a source archive: the tag made harmless (no slash, no leading dot) and the extension $1.
+source_name() {
+    local t="${TAG//[^A-Za-z0-9._@+-]/_}"
+    t="${t#"${t%%[!.]*}"}"
+    [[ -n "$t" ]] || t="source"
+    printf '%.200s.%s' "$t" "$1"
+}
+
 # ─── Install asset ───────────────────────────────────────────────────
 
+# Where --install puts the binary: --user means ~/.local/bin, otherwise the first writable choice.
 find_install_dir() {
-    if [ -w "/usr/local/bin" ]; then
+    if [[ "$MODE_USER" == true ]]; then
+        mkdir -p "$HOME/.local/bin" || return 1
+        echo "$HOME/.local/bin"
+    elif [ -w "/usr/local/bin" ]; then
         echo "/usr/local/bin"
     elif mkdir -p "$HOME/.local/bin" 2>/dev/null; then
         echo "$HOME/.local/bin"
@@ -1379,8 +1536,10 @@ install_asset() {
 
     local selected_path=""
 
-    if [[ -n "$pattern" ]]; then
-        selected_path=$(echo "$assets" | grep -i "$pattern" | head -1) || true
+    if [[ -n "$ASSET_NAME" ]]; then
+        selected_path=$(find_asset_exact "$ASSET_NAME" "$assets") || true
+    elif [[ -n "$pattern" ]]; then
+        selected_path=$(echo "$assets" | grep -i -e "$pattern" | head -1) || true
     else
         if [[ "${MODE_DETECT:-false}" != true ]]; then
             detect_platform
@@ -1388,7 +1547,7 @@ install_asset() {
         while IFS= read -r asset_path; do
             local fname
             fname=$(basename "$asset_path")
-            if [[ "$(highlight_asset "$fname")" == "match" ]]; then
+            if [[ "$(highlight_asset "$fname")" == "match" ]] && auto_pick_ok "$(url_decode "$fname")"; then
                 selected_path="$asset_path"
                 break
             fi
@@ -1396,13 +1555,18 @@ install_asset() {
     fi
 
     if [[ -z "$selected_path" ]]; then
-        echo -e "${RED}${SYM_FAIL} No suitable asset found${NC}"
+        if [[ -n "$ASSET_NAME" ]]; then
+            echo -e "${RED}${SYM_FAIL} No asset named '$(printable "$ASSET_NAME")'${NC}"
+        else
+            echo -e "${RED}${SYM_FAIL} No suitable asset found${NC}"
+        fi
         echo -e "  Use ${YELLOW}--detect${NC} to see what's available, or ${YELLOW}--get <pattern>${NC} to specify"
         return 1
     fi
 
-    local filename
+    local filename name
     filename=$(basename "$selected_path")
+    name=$(url_decode "$filename")
     local url="https://github.com${selected_path}"
 
     # The download and its extraction stay in a temporary folder: only the binary is written out.
@@ -1414,20 +1578,21 @@ install_asset() {
     local extract_dir="$tmp_dir/extract"
     mkdir "$extract_dir"
 
-    echo -e "${SYM_ARROW} Downloading ${CYAN}${filename}${NC}..."
-    if ! curl -L --progress-bar "$url" -o "$archive"; then
+    echo -e "${SYM_ARROW} Downloading ${CYAN}$(printable "$name")${NC}..."
+    if ! curl -fL --progress-bar "$url" -o "$archive"; then
         echo -e "${RED}${SYM_FAIL} Download failed${NC}"
         return 1
     fi
-    echo -e "${GREEN}${SYM_OK} Downloaded: ${filename}${NC}"
+    echo -e "${GREEN}${SYM_OK} Downloaded: $(printable "$name")${NC}"
 
     if [[ "${MODE_VERIFY:-false}" == true ]]; then
         local checksum_path
-        checksum_path=$(find_checksum_asset "$filename" "$assets")
+        checksum_path=$(find_checksum_asset "$name" "$assets")
         if [[ -n "$checksum_path" ]]; then
-            verify_checksum "$archive" "$checksum_path" || return 1
+            verify_checksum "$archive" "$checksum_path" "$name" || return 1
         else
-            echo -e "${YELLOW}${SYM_FAIL} No checksum file found, proceeding without verification${NC}"
+            echo -e "${RED}${SYM_FAIL} No checksum file found for $(printable "$name")${NC}"
+            return 1
         fi
     fi
 
@@ -1477,14 +1642,18 @@ install_asset() {
     if [[ -n "$DL_DIR" ]]; then
         install_dir="${DL_DIR%/}"
     else
-        install_dir=$(find_install_dir)
+        install_dir=$(find_install_dir) || {
+            echo -e "${RED}${SYM_FAIL} Cannot create the install folder${NC}"
+            return 1
+        }
     fi
     local binary_name
     binary_name=$(basename "$binary_path")
 
-    echo -e "${SYM_ARROW} Installing ${CYAN}${binary_name}${NC} to ${CYAN}${install_dir:-/}${NC}..."
-    if cp "$binary_path" "$install_dir/$binary_name" && chmod +x "$install_dir/$binary_name"; then
-        echo -e "${GREEN}${SYM_OK} Installed: ${install_dir}/${binary_name}${NC}"
+    # An installed binary is replaced: that is how an update works, with or without --force.
+    echo -e "${SYM_ARROW} Installing ${CYAN}$(printable "$binary_name")${NC} to ${CYAN}${install_dir:-/}${NC}..."
+    if cp -- "$binary_path" "$install_dir/$binary_name" && chmod +x "$install_dir/$binary_name"; then
+        echo -e "${GREEN}${SYM_OK} Installed: ${install_dir}/$(printable "$binary_name")${NC}"
     else
         echo -e "${RED}${SYM_FAIL} Installation failed (permission denied?)${NC}"
         return 1
@@ -1801,6 +1970,9 @@ MODE_INSTALL=false
 MODE_OPEN=false
 NO_CACHE=false
 GET_PATTERN=""
+ASSET_NAME=""
+FORCE=false
+MODE_USER=false
 TAG_FROM=""
 TAG_TO=""
 
@@ -1871,6 +2043,15 @@ set_dir() {
     if [[ -z "$DL_DIR" ]]; then
         echo -e "${RED}${SYM_FAIL} --dir requires a folder argument${NC}" >&"$MSG_FD"
         exit 1
+    fi
+}
+
+# An asset name to match exactly: a plain file name, not a path and not a hidden file.
+set_asset() {
+    ASSET_NAME="$1"
+    if [[ -z "$ASSET_NAME" ]] || [[ "$ASSET_NAME" == .* ]] || [[ "$ASSET_NAME" == */* ]] \
+        || [[ "$ASSET_NAME" == *\\* ]] || [[ "$ASSET_NAME" == *[[:cntrl:]]* ]]; then
+        usage_error "--asset needs a plain file name (no path, no leading dot): '$(printable "$ASSET_NAME")'"
     fi
 }
 
@@ -2019,6 +2200,22 @@ while [[ $# -gt 0 ]]; do
             esac
             shift
             ;;
+        --asset)
+            set_asset "${2:-}"
+            shift 2
+            ;;
+        --asset=*)
+            set_asset "${1#*=}"
+            shift
+            ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
+        --user)
+            MODE_USER=true
+            shift
+            ;;
         --notes)
             MODE_NOTES=true
             shift
@@ -2067,6 +2264,19 @@ fi
 if [[ -n "$MODE_SOURCE" ]] && [[ "$MODE_GET" == true ]]; then
     echo -e "${RED}${SYM_FAIL} --source and --get cannot be used together${NC}" >&"$MSG_FD"
     exit 1
+fi
+
+if [[ -n "$ASSET_NAME" ]] && [[ "$MODE_GET" == true ]]; then
+    usage_error "--asset and --get cannot be used together"
+fi
+if [[ -n "$ASSET_NAME" ]] && [[ -n "$MODE_SOURCE" ]]; then
+    usage_error "--asset and --source cannot be used together"
+fi
+if [[ "$MODE_USER" == true ]] && [[ "$MODE_INSTALL" != true ]]; then
+    usage_error "--user only goes with --install"
+fi
+if [[ "$MODE_USER" == true ]] && [[ -n "$DL_DIR" ]]; then
+    usage_error "--user and --dir cannot be used together"
 fi
 
 # --dir is never created: a missing folder is more likely a typo than a wish.
@@ -2129,12 +2339,12 @@ if [[ "$MODE_JSON" == true ]]; then
 fi
 
 if [[ "$MODE_INSTALL" == true ]]; then
-    install_asset "${GET_PATTERN:-}"
+    install_asset "${GET_PATTERN:-}" || exit $?
     exit 0
 fi
 
-if [[ "$MODE_GET" == true ]]; then
-    download_asset "$GET_PATTERN"
+if [[ "$MODE_GET" == true ]] || [[ -n "$ASSET_NAME" ]]; then
+    download_asset "$GET_PATTERN" || exit $?
     exit 0
 fi
 
@@ -2144,23 +2354,15 @@ if [[ -n "$MODE_SOURCE" ]]; then
     case "$MODE_SOURCE" in
         zip)
             echo -e "${SYM_ARROW} Downloading ZIP source archive..."
-            dl_file=$(dest_path "$(basename "$ZIP_URL")")
-            if curl -L --progress-bar "$ZIP_URL" -o "$dl_file"; then
-                echo -e "${GREEN}${SYM_OK} Downloaded: ${dl_file}${NC}"
-            else
-                echo -e "${RED}${SYM_FAIL} Download failed${NC}"
-                exit 1
-            fi
+            dl_file=$(dest_path "$(source_name zip)")
+            fetch_file "$ZIP_URL" "$dl_file" || exit 1
+            echo -e "${GREEN}${SYM_OK} Downloaded: ${dl_file}${NC}"
             ;;
         tar|tar.gz|tarball)
             echo -e "${SYM_ARROW} Downloading TAR.GZ source archive..."
-            dl_file=$(dest_path "$(basename "$TARBALL_URL")")
-            if curl -L --progress-bar "$TARBALL_URL" -o "$dl_file"; then
-                echo -e "${GREEN}${SYM_OK} Downloaded: ${dl_file}${NC}"
-            else
-                echo -e "${RED}${SYM_FAIL} Download failed${NC}"
-                exit 1
-            fi
+            dl_file=$(dest_path "$(source_name tar.gz)")
+            fetch_file "$TARBALL_URL" "$dl_file" || exit 1
+            echo -e "${GREEN}${SYM_OK} Downloaded: ${dl_file}${NC}"
             ;;
     esac
     exit 0
@@ -2179,6 +2381,6 @@ if [[ "$MODE_NOTES" == true ]]; then
 fi
 
 # Interactive download prompt (only in terminal, not piped)
-if [[ -t 0 ]] && [[ "$MODE_ASSETS" != true ]] && [[ "$MODE_GET" != true ]]; then
+if [[ -t 0 ]] && [[ "$MODE_ASSETS" != true ]] && [[ "$MODE_GET" != true ]] && [[ -z "$ASSET_NAME" ]]; then
     prompt_download
 fi
