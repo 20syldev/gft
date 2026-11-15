@@ -1820,6 +1820,56 @@ case "${1:-}" in
         ;;
 esac
 
+# Usage error: message on MSG_FD, exit status 2.
+usage_error() {
+    echo -e "${RED}${SYM_FAIL} $1${NC}" >&"$MSG_FD"
+    exit 2
+}
+
+# A value from the command line, with anything that is not printable made harmless.
+printable() {
+    printf '%s' "${1//[^[:print:]]/?}"
+}
+
+# Print true or false for a boolean option value (true|false|1|0|yes|no|on|off, any case).
+parse_bool() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        true|1|yes|on) echo true ;;
+        false|0|no|off) echo false ;;
+        *) return 1 ;;
+    esac
+}
+
+# Set the variable $1 from the boolean value $3 of the option $2.
+set_bool() {
+    local value
+    value=$(parse_bool "$3") || usage_error "$2: invalid value '$(printable "$3")' (use true or false)"
+    printf -v "$1" '%s' "$value"
+}
+
+set_source() {
+    MODE_SOURCE="$1"
+    if [[ -z "$MODE_SOURCE" ]]; then
+        echo -e "${RED}${SYM_FAIL} --source requires an argument: zip or tar${NC}" >&"$MSG_FD"
+        exit 1
+    fi
+    case "$MODE_SOURCE" in
+        zip|tar|tar.gz|tarball) ;;
+        *)
+            echo -e "${RED}${SYM_FAIL} --source argument must be 'zip' or 'tar'${NC}" >&"$MSG_FD"
+            exit 1
+            ;;
+    esac
+}
+
+set_dir() {
+    DL_DIR="$1"
+    if [[ -z "$DL_DIR" ]]; then
+        echo -e "${RED}${SYM_FAIL} --dir requires a folder argument${NC}" >&"$MSG_FD"
+        exit 1
+    fi
+}
+
 add_positional() {
     if [ -z "$REPO" ]; then
         REPO="$1"
@@ -1879,6 +1929,10 @@ while [[ $# -gt 0 ]]; do
             NO_CACHE=true
             shift
             ;;
+        --no-cache=*)
+            set_bool NO_CACHE --no-cache "${1#*=}"
+            shift
+            ;;
         --open)
             MODE_OPEN=true
             shift
@@ -1891,20 +1945,17 @@ while [[ $# -gt 0 ]]; do
             MODE_VERIFY=true
             shift
             ;;
+        --checksum=*|--verify=*)
+            set_bool MODE_VERIFY "${1%%=*}" "${1#*=}"
+            shift
+            ;;
         --source)
-            MODE_SOURCE="${2:-}"
-            if [[ -z "$MODE_SOURCE" ]]; then
-                echo -e "${RED}${SYM_FAIL} --source requires an argument: zip or tar${NC}" >&"$MSG_FD"
-                exit 1
-            fi
-            case "$MODE_SOURCE" in
-                zip|tar|tar.gz|tarball) ;;
-                *)
-                    echo -e "${RED}${SYM_FAIL} --source argument must be 'zip' or 'tar'${NC}" >&"$MSG_FD"
-                    exit 1
-                    ;;
-            esac
+            set_source "${2:-}"
             shift 2
+            ;;
+        --source=*)
+            set_source "${1#*=}"
+            shift
             ;;
         --releases|--list)
             MODE_LIST=true
@@ -1912,6 +1963,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --pre|--prerelease)
             MODE_PRE=true
+            shift
+            ;;
+        --pre=*|--prerelease=*)
+            set_bool MODE_PRE "${1%%=*}" "${1#*=}"
             shift
             ;;
         --clear-cache)
@@ -1948,12 +2003,17 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --dir)
-            DL_DIR="${2:-}"
-            if [[ -z "$DL_DIR" ]]; then
-                echo -e "${RED}${SYM_FAIL} --dir requires a folder argument${NC}" >&"$MSG_FD"
-                exit 1
-            fi
+            set_dir "${2:-}"
             shift 2
+            ;;
+        --dir=*)
+            set_dir "${1#*=}"
+            # The shell expands a leading ~ only in the separate form, so do it here.
+            case "$DL_DIR" in
+                "~") DL_DIR="$HOME" ;;
+                "~/"*) DL_DIR="$HOME/${DL_DIR#"~/"}" ;;
+            esac
+            shift
             ;;
         --notes)
             MODE_NOTES=true
