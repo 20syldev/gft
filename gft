@@ -112,8 +112,10 @@ setup_symbols() {
 # Depends only on the environment, so it can settle once at startup.
 setup_symbols
 
-trap 'spinner_stop; exit 130' INT
-trap 'spinner_stop; exit 143' TERM
+PART_FILE=""
+INSTALL_TMP=""
+trap 'spinner_stop; rm -f -- "${PART_FILE:-}"; exit 130' INT
+trap 'spinner_stop; rm -f -- "${PART_FILE:-}"; exit 143' TERM
 
 # ─── Help ────────────────────────────────────────────────────────────
 
@@ -145,7 +147,7 @@ show_help() {
     echo "  -v, --version      Show version"
     echo "  --check-update     Check if a newer version is available"
     echo "  --upgrade          Upgrade gft to the latest version"
-    echo "  --pre              Include pre-releases when resolving latest"
+    echo "  --pre              Include pre-releases when resolving latest (also lists them with --releases --plain)"
     echo "  --checksum         Verify the SHA-256/512 of a download (integrity, not authenticity)"
     echo "  --asset <name>     Exact asset file name for a download or --install (no pattern)"
     echo "  --force            Replace an existing file (downloads never overwrite otherwise)"
@@ -167,7 +169,7 @@ show_help() {
     echo "  GITHUB_TOKEN       Read by gh (when installed) to authenticate"
     echo "  GFT_CACHE_TTL      Cache TTL in seconds (default: 300)"
     echo "  GFT_CACHE_DIR      Cache folder (default: ~/.config/gft/cache)"
-    echo "  GFT_PLAIN_TIMEOUT  Time limit of --plain in seconds, all requests included (default: 8)"
+    echo "  GFT_PLAIN_TIMEOUT  Time limit of --plain in seconds, all requests included, 1-9999 (default: 8)"
     echo "  GFT_NO_SPINNER     Set to disable the loading spinner"
     echo "  GFT_ASCII          Set to force ASCII-only symbols"
     echo
@@ -452,7 +454,9 @@ file_mtime() {
 }
 
 cache_key() {
-    printf '%s' "$1" | tr -cs 'a-zA-Z0-9._-' '_'
+    local sum
+    sum=$(printf '%s' "$1" | cksum | cut -d' ' -f1)
+    printf '%.150s_%s' "$(printf '%s' "$1" | tr -cs 'a-zA-Z0-9._-' '_')" "$sum"
 }
 
 # Write a cache entry; a cache that cannot be written is never reported.
@@ -576,7 +580,11 @@ check_repository_exists() {
         } >&"$MSG_FD"
         exit 1
     else
-        echo -e "${YELLOW}${SYM_FAIL} Unable to verify repository (HTTP $response)${NC}" >&"$MSG_FD"
+        if [[ -z "$response" || "$response" == "000" ]]; then
+            echo -e "${YELLOW}${SYM_FAIL} Unable to reach github.com (network error or timeout)${NC}" >&"$MSG_FD"
+        else
+            echo -e "${YELLOW}${SYM_FAIL} Unable to verify repository (HTTP $response)${NC}" >&"$MSG_FD"
+        fi
         return 1
     fi
 }
@@ -711,8 +719,28 @@ display_info() {
 
 # ─── Assets listing ──────────────────────────────────────────────────
 
+# A tag as an URL path part: # ? space and control bytes are encoded, existing %XX are kept.
+tag_url() {
+    local LC_ALL=C s="$1" out="" c h i
+    for ((i = 0; i < ${#s}; i++)); do
+        c="${s:i:1}"
+        case "$c" in
+            [A-Za-z0-9._~@+,:=\&\!\'\(\)\*\;\$/-]) out+="$c" ;;
+            %)
+                if [[ "${s:i+1:2}" =~ ^[0-9A-Fa-f]{2}$ ]]; then out+="%"; else out+="%25"; fi
+                ;;
+            *)
+                printf -v h '%%%02X' "'$c"
+                out+="$h"
+                ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
 get_assets() {
-    local assets_url="https://github.com/$REPO/releases/expanded_assets/$TAG"
+    local assets_url
+    assets_url="https://github.com/$REPO/releases/expanded_assets/$(tag_url "$TAG")"
     local response rc=0
     response=$(fetch_page "$assets_url") || rc=$?
 
@@ -722,7 +750,7 @@ get_assets() {
         return 1
     fi
 
-    echo "$response" | grep -oP 'href="\K/[^"]+/releases/download/[^"]+' | sed 's/&amp;/\&/g' | sort -u
+    echo "$response" | grep -oP 'href="\K/[^"]+/releases/download/[^"]+' | sed 's/&amp;/\&/g' | LC_ALL=C sort -u
 }
 
 list_assets() {
@@ -905,7 +933,7 @@ list_releases() {
 
 # What --plain refuses to print, matched on bytes (C locale): invalid UTF-8, Cf, C1 and line separators.
 PLAIN_UTF8=$'^([ -~]|[\xc2-\xdf][\x80-\xbf]|\xe0[\xa0-\xbf][\x80-\xbf]|[\xe1-\xec\xee\xef][\x80-\xbf][\x80-\xbf]|\xed[\x80-\x9f][\x80-\xbf]|\xf0[\x90-\xbf][\x80-\xbf][\x80-\xbf]|[\xf1-\xf3][\x80-\xbf][\x80-\xbf][\x80-\xbf]|\xf4[\x80-\x8f][\x80-\xbf][\x80-\xbf])*$'
-PLAIN_HIDDEN=$'\xc2[\x80-\x9f]|\xc2\xad|\xd8[\x80-\x85\x9c]|\xdb\x9d|\xdc\x8f|\xe0\xa2[\x90\x91]|\xe0\xa3\xa2|\xe1\xa0\x8e|\xe2\x80[\x8b-\x8f\xa8-\xae]|\xe2\x81[\xa0-\xaf]|\xef\xbb\xbf|\xef\xbf[\xb9-\xbb]|\xf0\x91\x82\xbd|\xf0\x91\x83\x8d|\xf0\x93\x90[\xb0-\xb8]|\xf0\x9b\xb2[\xa0-\xa3]|\xf0\x9d\x85[\xb3-\xba]|\xf3\xa0[\x80-\xbf]'
+PLAIN_HIDDEN=$'\xc2[\x80-\x9f]|\xc2\xad|\xd8[\x80-\x85\x9c]|\xdb\x9d|\xdc\x8f|\xe0\xa2[\x90\x91]|\xe0\xa3\xa2|\xe1\xa0\x8e|\xe2\x80[\x8b-\x8f\xa8-\xae]|\xe2\x81[\xa0-\xaf]|\xef\xbb\xbf|\xef\xbf[\xb9-\xbb]|\xf0\x91\x82\xbd|\xf0\x91\x83\x8d|\xf0\x93\x90[\xb0-\xbf]|\xf0\x9b\xb2[\xa0-\xa3]|\xf0\x9d\x85[\xb3-\xba]|\xf3\xa0[\x80-\xbf]'
 
 # Decode what a page shows for a name: HTML entities, then percent-encoding.
 plain_decode() {
@@ -914,8 +942,8 @@ plain_decode() {
 
 # True when the decoded name $1 may be printed; $2 is its encoded form, which may not hold %00-%1f or %7f.
 plain_ok() {
-    local LC_ALL=C name="$1" raw
-    raw=$(html_decode "${2:-}")
+    local LC_ALL=C name="$1" raw="${2:-}"
+    [[ "$raw" != *\&* ]] || raw=$(html_decode "$raw")
     [[ -n "$name" ]] || return 1
     [[ ! "$raw" =~ %[01][0-9a-fA-F] ]] || return 1
     [[ ! "$raw" =~ %[7][fF] ]] || return 1
@@ -952,7 +980,7 @@ plain_latest_tag() {
     tag=$(printf '%s' "$page" | grep -o 'href="[^"]*/releases/tag/[^"]*"' | head -1 \
         | sed 's/.*\/tag\///; s/".*//') || true
     [[ -n "$tag" ]] || return 1
-    printf '%s' "$tag"
+    printf '%s' "$(html_decode "$tag")"
 }
 
 # --releases --plain: "tag<TAB>date" for the first page (10 at most), newest first, "prerelease" in a third column.
@@ -965,7 +993,7 @@ plain_releases() {
     fi
 
     local rows
-    rows=$(printf '%s' "$page" | parse_release_rows) || true
+    rows=$(printf '%s' "$page" | parse_release_rows | head -n 50) || true
     if [[ -z "$rows" ]]; then
         # A page whose layout is not recognised still has its tag links: no dates, no pre-release flag.
         rows=$(printf '%s' "$page" | grep -oP 'href="/[^"]+/releases/tag/\K[^"#]+' | awk '!seen[$0]++' \
@@ -973,9 +1001,13 @@ plain_releases() {
         [[ -z "$rows" ]] || echo "gft: release page layout not recognised, dates are missing" >&2
     fi
 
-    local tag name date pre decoded seen=$'\n' count=0
+    local tag name date pre decoded seen=$'\n' count=0 n=0
     while IFS=$'\037' read -r tag name date pre; do
         [[ -n "$tag" ]] || continue
+        if (( ++n % 20 == 0 )) && ! plain_budget > /dev/null; then
+            echo "gft: out of time, the list is cut short" >&2
+            break
+        fi
         [[ "$pre" != true ]] || [[ "$MODE_PRE" == true ]] || continue
         decoded=$(plain_decode "$tag")
         plain_ok "$decoded" "$tag" || continue
@@ -990,7 +1022,7 @@ plain_releases() {
             printf '%s\t%s\n' "$decoded" "$date"
         fi
         ((count++)) || true
-        [[ $count -lt 200 ]] || break
+        [[ $count -lt 10 ]] || break
     done <<< "$rows"
 }
 
@@ -999,25 +1031,34 @@ plain_assets() {
     local assets rc=0
     assets=$(get_assets) || rc=$?
     if [[ $rc -eq 2 ]]; then
-        echo "gft: could not fetch the assets of $REPO $TAG" >&2
+        echo "gft: could not fetch the assets of $REPO $(printable "$TAG")" >&2
         return 1
     fi
 
-    local path raw name seen=$'\n' count=0 recommended="" others=""
+    local path raw name key n=0 nrec=0 noth=0 recommended="" others=""
+    local -A seen=()
     while IFS= read -r path; do
         [[ -n "$path" ]] || continue
+        if (( ++n % 50 == 0 )) && ! plain_budget > /dev/null; then
+            echo "gft: out of time, the list is cut short" >&2
+            break
+        fi
         raw="${path##*/}"
-        name=$(url_decode "$raw")
+        url_decode_var name "$raw" || continue
         plain_ok "$name" "$raw" || continue
         # A name that --asset would refuse is of no use to a caller.
         [[ "$name" != */* && "$name" != *\\* && "$name" != .* ]] || continue
-        [[ "$seen" != *$'\n'"$name"$'\n'* ]] || continue
-        seen+="$name"$'\n'
-        if [[ "$MODE_DETECT" == true ]] && [[ "$(highlight_asset "$name")" == "match" ]] \
-            && auto_pick_ok "$name"; then
+        key="k:$name"
+        [[ -z "${seen[$key]+x}" ]] || continue
+        seen[$key]=1
+        if [[ "$MODE_DETECT" == true ]] && highlight_match "$name" && auto_pick_ok "$name"; then
             recommended+="$name"$'\t'"recommended"$'\n'
-        else
+            ((nrec++)) || true
+            [[ $nrec -lt 200 ]] || break
+        elif [[ $noth -lt 200 ]]; then
             others+="$name"$'\n'
+            ((noth++)) || true
+            [[ "$MODE_DETECT" == true || $noth -lt 200 ]] || break
         fi
     done <<< "$assets"
 
@@ -1048,25 +1089,21 @@ detect_platform() {
     esac
 }
 
+highlight_match() {
+    local f="${1,,}" p os=false arch=false
+
+    for p in "${OS_PATTERNS[@]}"; do
+        if [[ "$f" == *"${p,,}"* ]]; then os=true; break; fi
+    done
+    for p in "${ARCH_PATTERNS[@]}"; do
+        if [[ "$f" == *"${p,,}"* ]]; then arch=true; break; fi
+    done
+
+    $os && $arch
+}
+
 highlight_asset() {
-    local filename="$1"
-    local filename_lower
-    filename_lower=$(echo "$filename" | tr '[:upper:]' '[:lower:]')
-    local os_match=false arch_match=false
-
-    for pattern in "${OS_PATTERNS[@]}"; do
-        local p_lower
-        p_lower=$(echo "$pattern" | tr '[:upper:]' '[:lower:]')
-        [[ "$filename_lower" == *"$p_lower"* ]] && os_match=true && break
-    done
-
-    for pattern in "${ARCH_PATTERNS[@]}"; do
-        local p_lower
-        p_lower=$(echo "$pattern" | tr '[:upper:]' '[:lower:]')
-        [[ "$filename_lower" == *"$p_lower"* ]] && arch_match=true && break
-    done
-
-    if $os_match && $arch_match; then
+    if highlight_match "$1"; then
         echo "match"
     fi
 }
@@ -1165,9 +1202,33 @@ html_decode() {
     printf '%s' "$s"
 }
 
+# Decode the %XX of $2 into the variable $1: a lone % stays, %00 stays written out and fails.
+url_decode_var() {
+    local _s="$2" _o="" _b _rc=0
+    while [[ "$_s" == *%* ]]; do
+        _o+="${_s%%%*}"
+        _s="${_s#*%}"
+        if [[ "$_s" =~ ^[0-9A-Fa-f]{2} ]]; then
+            if [[ "${_s:0:2}" == "00" ]]; then
+                _o+="%00"
+                _rc=1
+            else
+                printf -v _b '%b' "\\x${_s:0:2}"
+                _o+="$_b"
+            fi
+            _s="${_s:2}"
+        else
+            _o+="%"
+        fi
+    done
+    printf -v "$1" '%s' "$_o$_s"
+    return "$_rc"
+}
+
 url_decode() {
-    local s="${1//\\/\\\\}"
-    printf '%b' "${s//%/\\x}"
+    local _r
+    url_decode_var _r "$1" || true
+    printf '%s' "$_r"
 }
 
 trim() {
@@ -1379,17 +1440,18 @@ find_asset_named() {
     return 1
 }
 
-# Print the asset path (from the list $2) whose decoded file name is exactly $1.
+# Print the asset paths (from the list $2) whose decoded file name is exactly $1.
 find_asset_exact() {
-    local path
+    local path name found=""
     while IFS= read -r path; do
         [[ -n "$path" ]] || continue
-        if [[ "$(url_decode "${path##*/}")" == "$1" ]]; then
-            printf '%s\n' "$path"
-            return 0
+        url_decode_var name "${path##*/}" || continue
+        if [[ "$name" == "$1" ]]; then
+            found+="$path"$'\n'
         fi
     done <<< "$2"
-    return 1
+    [[ -n "$found" ]] || return 1
+    printf '%s' "$found"
 }
 
 # Find the checksum file of $1 (a decoded file name) among the asset paths $2.
@@ -1422,7 +1484,8 @@ find_checksum_asset() {
 
 # Print the hash that the checksum file $1 gives for the file name $2; a lone hash counts only when $3 is true.
 checksum_for() {
-    tr -d '\r' < "$1" | awk -v name="$2" -v single="$3" '
+    tr -d '\r' < "$1" | GFT_CK_NAME="$2" awk -v single="$3" '
+        BEGIN { name = ENVIRON["GFT_CK_NAME"] }
         NF == 0 { next }
         {
             line = $0
@@ -1468,7 +1531,7 @@ verify_checksum() {
     rm -f "$tmp_checksum"
 
     if [[ -z "$expected_hash" ]]; then
-        echo -e "${RED}${SYM_FAIL} ${name} is not in the checksum list${NC}"
+        echo -e "${RED}${SYM_FAIL} $(printable "$name") is not in the checksum list${NC}"
         return 1
     fi
     expected_hash=$(printf '%s' "$expected_hash" | tr '[:upper:]' '[:lower:]')
@@ -1480,7 +1543,7 @@ verify_checksum() {
         *) bits="" ;;
     esac
     if [[ -z "$bits" ]] || [[ ! "$expected_hash" =~ ^[0-9a-f]+$ ]]; then
-        echo -e "${RED}${SYM_FAIL} The checksum of ${name} is not a SHA-256 or SHA-512 value${NC}"
+        echo -e "${RED}${SYM_FAIL} The checksum of $(printable "$name") is not a SHA-256 or SHA-512 value${NC}"
         return 1
     fi
 
@@ -1493,10 +1556,13 @@ verify_checksum() {
 
     local actual_hash
     # $cmd is unquoted on purpose ("shasum -a 256"); the path stays one word.
-    actual_hash=$($cmd -- "$file" | awk '{print $1}') || true
+    actual_hash=$($cmd -- "$file" 2>/dev/null | awk '{print $1}') || true
     actual_hash=$(printf '%s' "$actual_hash" | tr '[:upper:]' '[:lower:]')
 
-    if [[ "$actual_hash" == "$expected_hash" ]]; then
+    if [[ -z "$actual_hash" ]]; then
+        echo -e "${RED}${SYM_FAIL} Could not compute the checksum of the download${NC}"
+        return 1
+    elif [[ "$actual_hash" == "$expected_hash" ]]; then
         echo -e "${GREEN}${SYM_OK} Checksum verified${NC} (integrity, not authenticity)"
     else
         rm -f -- "$file"
@@ -1509,10 +1575,10 @@ verify_checksum() {
 
 # ─── Direct asset download ───────────────────────────────────────────
 
-# Download $1 to $2, never over an existing file unless --force.
+# Download $1 to $2, never over an existing file without --force; $3 and $4 (checksum asset, name) verify it first.
 fetch_file() {
-    local url="$1" dest="$2"
-    if [[ -d "$dest" ]] && [[ ! -L "$dest" ]]; then
+    local url="$1" dest="$2" checksum_path="${3:-}" name="${4:-}"
+    if [[ -d "$dest" ]]; then
         echo -e "${RED}${SYM_FAIL} Cannot write ${dest}: it is a folder${NC}"
         return 1
     fi
@@ -1520,24 +1586,44 @@ fetch_file() {
         echo -e "${RED}${SYM_FAIL} ${dest} already exists, use --force to replace it${NC}"
         return 1
     fi
-    local part="$dest.gft-part.$$"
-    if curl -fL --progress-bar "$url" -o "$part" && mv -f -- "$part" "$dest"; then
-        return 0
+    local part
+    if ! part=$(mktemp -- "$dest.gft-part.XXXXXX" 2>/dev/null); then
+        echo -e "${RED}${SYM_FAIL} Cannot write ${dest}${NC}"
+        return 1
     fi
-    rm -f -- "$part"
-    echo -e "${RED}${SYM_FAIL} Download failed${NC}"
-    return 1
+    PART_FILE="$part"
+    if ! curl -fL --progress-bar "$url" -o "$part"; then
+        rm -f -- "$part"
+        PART_FILE=""
+        echo -e "${RED}${SYM_FAIL} Download failed${NC}"
+        return 1
+    fi
+    if [[ -n "$checksum_path" ]] && ! verify_checksum "$part" "$checksum_path" "$name"; then
+        rm -f -- "$part"
+        PART_FILE=""
+        return 1
+    fi
+    chmod "$(printf '%o' $(( 8#666 & ~8#$(umask) )))" "$part" 2>/dev/null || true
+    if ! mv -f -- "$part" "$dest"; then
+        rm -f -- "$part"
+        PART_FILE=""
+        echo -e "${RED}${SYM_FAIL} Cannot write ${dest}${NC}"
+        return 1
+    fi
+    PART_FILE=""
 }
 
-# True for a file that `--install` may pick on its own: not a package, a checksum or a signature.
+# True for a file that --install may pick on its own: an archive or a binary, not a package, sum or signature.
 auto_pick_ok() {
-    local n
-    n=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-    case "$n" in
-        *.deb|*.rpm|*.apk|*.pkg|*.msi|*.dmg) return 1 ;;
-        *.sha256|*.sha256sum|*.sha512|*.sha1|*.md5|*.sum|*.sig|*.asc|*.minisig) return 1 ;;
-        *.pem|*.crt|*.cert|*.sbom|*.sbom.json|*.spdx|*.spdx.json|*.sigstore|*.sigstore.json) return 1 ;;
+    case "${1,,}" in
+        *.tar.gz|*.tgz|*.zip) return 0 ;;
+        *.deb|*.rpm|*.apk|*.pkg|*.msi|*.msix|*.appx|*.dmg|*.snap|*.flatpak) return 1 ;;
+        *.sha256|*.sha256sum|*.sha512|*.sha512sum|*.sha1|*.sha1sum|*.md5|*.md5sum|*.sum|*.b3|*.blake3) return 1 ;;
+        *.sig|*.sig.b64|*.asc|*.minisig|*.p7s|*.pem|*.crt|*.cert|*.cer|*.der|*.pub|*.bundle|*.att|*.attestation) return 1 ;;
+        *.sbom|*.sbom.json|*.sbom.xml|*.cdx.json|*-sbom|*.spdx|*.spdx.json|*.sigstore|*.sigstore.json) return 1 ;;
         *.intoto.jsonl|*checksums*|*sha256sums*|*sha512sums*|*shasums*) return 1 ;;
+        *.tar|*.tar.*|*.tbz|*.tbz2|*.txz|*.tzst|*.7z|*.rar|*.gz|*.xz|*.bz2|*.zst) return 1 ;;
+        *.txt|*.json|*.md|*.sh.sig) return 1 ;;
     esac
     return 0
 }
@@ -1573,11 +1659,15 @@ download_asset() {
         echo -e "  Use ${YELLOW}--assets${NC} to list available assets"
         return 1
     elif [[ $match_count -gt 1 ]]; then
+        if [[ -n "$ASSET_NAME" ]]; then
+            echo -e "${RED}${SYM_FAIL} Several assets are named '$(printable "$ASSET_NAME")'${NC}" >&2
+            return 2
+        fi
         if [[ ! -t 0 ]]; then
             {
                 echo -e "${YELLOW}${SYM_BULLET} Multiple assets match '$(printable "$pattern")':${NC}"
                 while IFS= read -r match; do
-                    echo "  $(printable "$(url_decode "$(basename "$match")")")"
+                    echo -e "  $(printable "$(url_decode "$(basename "$match")")")"
                 done <<< "$matches"
                 echo -e "  Name one of them with ${YELLOW}--asset=NAME${NC}"
             } >&2
@@ -1611,22 +1701,20 @@ download_asset() {
     fi
     dest=$(dest_path "$filename")
 
-    echo -e "${SYM_ARROW} Downloading ${CYAN}$(printable "$filename")${NC}..."
-    if fetch_file "$url" "$dest"; then
-        echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
-    else
-        return 1
-    fi
-
+    local checksum_path=""
     if [[ "${MODE_VERIFY:-false}" == true ]]; then
-        local checksum_path
         checksum_path=$(find_checksum_asset "$name" "$assets")
-        if [[ -n "$checksum_path" ]]; then
-            verify_checksum "$dest" "$checksum_path" "$name" || return 1
-        else
+        if [[ -z "$checksum_path" ]]; then
             echo -e "${RED}${SYM_FAIL} No checksum file found for $(printable "$name")${NC}"
             return 1
         fi
+    fi
+
+    echo -e "${SYM_ARROW} Downloading ${CYAN}$(printable "$filename")${NC}..."
+    if fetch_file "$url" "$dest" "$checksum_path" "$name"; then
+        echo -e "${GREEN}${SYM_OK} Downloaded: $(printable "$dest")${NC}"
+    else
+        return 1
     fi
 }
 
@@ -1679,6 +1767,10 @@ install_asset() {
 
     if [[ -n "$ASSET_NAME" ]]; then
         selected_path=$(find_asset_exact "$ASSET_NAME" "$assets") || true
+        if [[ "$selected_path" == *$'\n'* ]]; then
+            echo -e "${RED}${SYM_FAIL} Several assets are named '$(printable "$ASSET_NAME")'${NC}" >&2
+            return 2
+        fi
     elif [[ -n "$pattern" ]]; then
         selected_path=$(echo "$assets" | grep -i -e "$pattern" | head -1) || true
     else
@@ -1712,9 +1804,12 @@ install_asset() {
 
     # The download and its extraction stay in a temporary folder: only the binary is written out.
     local tmp_dir
-    tmp_dir=$(mktemp -d)
-    # shellcheck disable=SC2064
-    trap "rm -rf '$tmp_dir'" EXIT
+    if ! tmp_dir=$(mktemp -d); then
+        echo -e "${RED}${SYM_FAIL} Cannot create a temporary folder${NC}"
+        return 1
+    fi
+    INSTALL_TMP="$tmp_dir"
+    trap 'rm -rf -- "$INSTALL_TMP"' EXIT
     local archive="$tmp_dir/$filename"
     local extract_dir="$tmp_dir/extract"
     mkdir "$extract_dir"
@@ -1739,7 +1834,7 @@ install_asset() {
 
     local binary_path=""
 
-    case "$filename" in
+    case "${filename,,}" in
         *.tar.gz|*.tgz)
             echo -e "${SYM_ARROW} Extracting archive..."
             if ! tar xzf "$archive" -C "$extract_dir" 2>/dev/null; then
@@ -1791,11 +1886,20 @@ install_asset() {
     local binary_name
     binary_name=$(basename "$binary_path")
 
-    # An installed binary is replaced: that is how an update works, with or without --force.
+    # An installed binary is replaced (an update, with or without --force) by a rename, so a busy or read-only file is no obstacle.
     echo -e "${SYM_ARROW} Installing ${CYAN}$(printable "$binary_name")${NC} to ${CYAN}${install_dir:-/}${NC}..."
-    if cp -- "$binary_path" "$install_dir/$binary_name" && chmod +x "$install_dir/$binary_name"; then
+    local target="$install_dir/$binary_name" staged=""
+    if [[ -d "$target" ]]; then
+        echo -e "${RED}${SYM_FAIL} Cannot install ${target}: it is a folder${NC}"
+        return 1
+    fi
+    if staged=$(mktemp -- "$install_dir/.$binary_name.gft-new.XXXXXX" 2>/dev/null) \
+        && cp -- "$binary_path" "$staged" \
+        && chmod "$(printf '%o' $(( 8#777 & ~8#$(umask) )))" "$staged" \
+        && mv -f -- "$staged" "$target"; then
         echo -e "${GREEN}${SYM_OK} Installed: ${install_dir}/$(printable "$binary_name")${NC}"
     else
+        [[ -z "$staged" ]] || rm -f -- "$staged"
         echo -e "${RED}${SYM_FAIL} Installation failed (permission denied?)${NC}"
         return 1
     fi
@@ -1900,12 +2004,16 @@ prompt_download() {
         dest=$(dest_path "$(source_name zip)")
         if fetch_file "$ZIP_URL" "$dest"; then
             echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
+        else
+            return 1
         fi
     elif [[ $REPLY =~ ^[Tt]$ ]]; then
         echo -e "${SYM_ARROW} Downloading TAR.GZ archive..."
         dest=$(dest_path "$(source_name tar.gz)")
         if fetch_file "$TARBALL_URL" "$dest"; then
             echo -e "${GREEN}${SYM_OK} Downloaded: ${dest}${NC}"
+        else
+            return 1
         fi
     fi
 }
@@ -2135,13 +2243,24 @@ esac
 
 # Usage error: message on MSG_FD, exit status 2.
 usage_error() {
-    echo -e "${RED}${SYM_FAIL} $1${NC}" >&"$MSG_FD"
+    echo -e "${RED}${SYM_FAIL} $1${NC}" >&2
     exit 2
 }
 
 # A value from the command line, with anything that is not printable made harmless.
+mask_hidden() {
+    local LC_ALL=C s="$1"
+    while [[ "$s" =~ $PLAIN_HIDDEN ]]; do
+        s="${s/"${BASH_REMATCH[0]}"/?}"
+    done
+    printf '%s' "$s"
+}
+
+# For echo -e: the backslashes are doubled so that they are printed as they are.
 printable() {
-    printf '%s' "${1//[^[:print:]]/?}"
+    local s="${1//[^[:print:]]/?}"
+    s=$(mask_hidden "$s")
+    printf '%s' "${s//\\/\\\\}"
 }
 
 # Print true or false for a boolean option value (true|false|1|0|yes|no|on|off, any case).
@@ -2215,10 +2334,13 @@ for arg in "$@"; do
         if [[ "$arg" == "--plain" ]]; then
             PLAIN_SEEN=true
             # One deadline for the whole run, counted from here.
-            PLAIN_END=$(( $(now_ms) + 1000 * $( [[ "${GFT_PLAIN_TIMEOUT:-}" =~ ^[1-9][0-9]*$ ]] && echo "$GFT_PLAIN_TIMEOUT" || echo 8 ) ))
+            PLAIN_END=$(( $(now_ms) + 1000 * $( [[ "${GFT_PLAIN_TIMEOUT:-}" =~ ^[1-9][0-9]{0,3}$ ]] && echo "$GFT_PLAIN_TIMEOUT" || echo 8 ) ))
         fi
     fi
 done
+
+# Colors off before any message, as NO_COLOR and a piped stdout ask.
+setup_colors
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -2393,11 +2515,17 @@ if [[ "$MODE_JSON" == true ]] || [[ "$PLAIN" == true ]]; then
 fi
 
 if [[ "$PLAIN" == true ]]; then
-    if [[ "$MODE_JSON" == true || "$MODE_QUIET" == true || "$MODE_INSTALL" == true \
-        || "$MODE_GET" == true || "$MODE_NOTES" == true || "$MODE_OPEN" == true \
-        || "$MODE_COMPARE" == true || -n "$MODE_SOURCE" || -n "$ASSET_NAME" ]]; then
-        usage_error "--plain only goes with --releases or --assets"
-    fi
+    plain_conflict=""
+    [[ "$MODE_JSON" != true ]] || plain_conflict="--json"
+    [[ -n "$plain_conflict" || "$MODE_QUIET" != true ]] || plain_conflict="-q"
+    [[ -n "$plain_conflict" || "$MODE_INSTALL" != true ]] || plain_conflict="--install"
+    [[ -n "$plain_conflict" || "$MODE_GET" != true ]] || plain_conflict="--get"
+    [[ -n "$plain_conflict" || "$MODE_NOTES" != true ]] || plain_conflict="--notes"
+    [[ -n "$plain_conflict" || "$MODE_OPEN" != true ]] || plain_conflict="--open"
+    [[ -n "$plain_conflict" || "$MODE_COMPARE" != true ]] || plain_conflict="a range of tags"
+    [[ -n "$plain_conflict" || -z "$MODE_SOURCE" ]] || plain_conflict="--source"
+    [[ -n "$plain_conflict" || -z "$ASSET_NAME" ]] || plain_conflict="--asset"
+    [[ -z "$plain_conflict" ]] || usage_error "--plain cannot be combined with $plain_conflict"
     if [[ "$MODE_LIST" != true && "$MODE_ASSETS" != true ]]; then
         usage_error "--plain needs --releases or --assets"
     fi
@@ -2435,6 +2563,9 @@ if [[ -n "$ASSET_NAME" ]] && [[ "$MODE_GET" == true ]]; then
 fi
 if [[ -n "$ASSET_NAME" ]] && [[ -n "$MODE_SOURCE" ]]; then
     usage_error "--asset and --source cannot be used together"
+fi
+if [[ "$MODE_VERIFY" == true ]] && [[ -n "$MODE_SOURCE" ]]; then
+    usage_error "--checksum does not go with --source: a source archive has no checksum file"
 fi
 if [[ "$MODE_USER" == true ]] && [[ "$MODE_INSTALL" != true ]]; then
     usage_error "--user only goes with --install"
