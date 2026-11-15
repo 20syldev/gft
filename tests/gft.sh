@@ -534,6 +534,297 @@ done
 HOME="$FAKEHOME" run -q -- update/x
 check "-- update/x is a repository lookup, not an update" '[[ -f "$FAKEHOME/.config/gft/gft" ]]'
 
+# ─── review follow-ups: caps, decoding, deadline, checksums, install ─
+
+assets_page() {
+    map_add "https://github.com/o/r/releases/expanded_assets/${1:-v2.0.0}" 200 assets.html
+}
+
+base
+mk_releases releases.html $(for i in $(seq 1 25); do echo "r$i|R$i|2026-01-01"; done)
+map_add https://github.com/o/r/releases 200 releases.html
+run --releases --plain -- o/r
+check "plain releases: the first page only, 10 lines at most" '[[ $(wc -l < "$T/out") -eq 10 && $RC -eq 0 ]]'
+
+base
+mk_assets assets.html v2.0.0 ok.bin "hiero%F0%93%90%B9x" "hiero%F0%93%90%BFx" "hiero%F0%93%90%B0x"
+assets_page
+run --assets --plain -- o/r
+check "plain assets: every format character is dropped, U+13439 and U+1343F too" '[[ "$OUT" == ok.bin ]]'
+
+base
+mk_assets assets.html v2.0.0 "x%0.bin" "a%zz.bin" "end%"
+assets_page
+run --assets --plain -- o/r
+check "plain assets: a % that is not an escape stays as it is, silently" '[[ "$OUT" == "a%zz.bin${NL}end%${NL}x%0.bin" && -z "$ERR" ]]'
+mk_releases releases.html "v1%zz|Z|2026-01-01" "v2.0.0|Two|2026-01-02"
+map_add https://github.com/o/r/releases 200 releases.html
+run --releases --plain -- o/r
+check "plain releases: a % that is not an escape stays as it is, silently" '[[ "$OUT" == "v1%zz${TAB}2026-01-01${NL}v2.0.0${TAB}2026-01-02" && -z "$ERR" ]]'
+
+base
+mk_assets assets.html v2.0.0 $(for i in $(seq 1 1500); do echo "tool_linux_amd64_$i.tar.gz"; done)
+assets_page
+run --assets --detect --plain -- o/r
+check "plain assets --detect: 1500 names, 200 lines, well inside the deadline" '[[ $RC -eq 0 && $(wc -l < "$T/out") -eq 200 && $ELAPSED -le 5 ]]'
+run --assets --plain -- o/r
+check "plain assets: 1500 names, 200 lines, well inside the deadline" '[[ $RC -eq 0 && $(wc -l < "$T/out") -eq 200 && $ELAPSED -le 5 ]]'
+
+base
+mk_assets assets.html 'v1#x' a.bin
+assets_page 'v1%23x'
+run --assets --plain -- o/r 'v1#x'
+check "plain assets: a tag with # is encoded in the URL (it round-trips from --releases --plain)" '[[ "$OUT" == a.bin ]]'
+
+base
+export GFT_CACHE_TTL=300
+mk_assets a1.html 'a@b' one.bin
+mk_assets a2.html 'a_b' two.bin
+map_add 'https://github.com/o/r/releases/expanded_assets/a@b' 200 a1.html
+map_add 'https://github.com/o/r/releases/expanded_assets/a_b' 200 a2.html
+run --assets --plain -- o/r 'a@b'
+run --assets --plain -- o/r 'a_b'
+check "cache: two tags that differ by a character do not share an entry" '[[ "$OUT" == two.bin ]]'
+
+base
+mk_assets assets.html v2.0.0 a.bin
+assets_page
+export FAKE_LOG_ARGS=1 GFT_PLAIN_TIMEOUT=99999999999999999999
+run --assets --plain -- o/r
+check "GFT_PLAIN_TIMEOUT: an absurd value falls back to 8 seconds" '[[ $(sed -n 1p "$FAKE_DIR/args") =~ max-time=(7|8)\. ]]'
+unset GFT_PLAIN_TIMEOUT
+run --assets --plain -- o/r
+check "plain deadline: the default is 8 seconds" '[[ $(sed -n 1p "$FAKE_DIR/args") =~ max-time=(7|8)\. ]]'
+export FAKE_SLEEP=1 GFT_PLAIN_TIMEOUT=2
+: > "$FAKE_DIR/calls"
+run --assets --plain -- o/r
+unset FAKE_SLEEP FAKE_LOG_ARGS GFT_PLAIN_TIMEOUT
+check "plain deadline: a chain of requests stops when the time is used up" '[[ $RC -eq 1 && $ELAPSED -le 3 && $(wc -l < "$FAKE_DIR/calls") -le 2 ]]'
+
+base
+mk_releases releases.html "v3.0.0-rc.1|C|2026-04-01|pre" "v2.0.0|Two|2026-03-02"
+map_add https://github.com/o/r/releases 200 releases.html
+mk_assets assets.html v3.0.0-rc.1 pre.bin
+assets_page v3.0.0-rc.1
+mk_assets assets2.html v2.0.0 stable.bin
+map_add https://github.com/o/r/releases/expanded_assets/v2.0.0 200 assets2.html
+run --assets --plain --pre -- o/r
+check "plain assets --pre: the newest release, a pre-release too" '[[ "$OUT" == pre.bin ]]'
+run --assets --plain --pre=false -- o/r
+check "plain assets without --pre: the latest stable release" '[[ "$OUT" == stable.bin ]]'
+run --releases --plain --pre=true -- o/r
+check "plain releases --pre=true lists the pre-release" '[[ "$OUT" == *prerelease* ]]'
+
+base
+run --json --nope -- o/r
+check "--json: an unknown option writes nothing on stdout, no ANSI anywhere" '[[ -z "$OUT" ]] && ! has_esc "$T/out" && ! has_esc "$T/err"'
+run --json --plain --releases -- o/r
+check "--plain with --json names the conflicting option" '[[ $RC -eq 2 && "$ERR" == *"--json"* ]]'
+
+# names from the network and from the command line never become escape sequences
+base
+mk_assets assets.html v2.0.0 "evil_linux_amd64%5Cx1b%5B31mRED%5Cx07"
+assets_page
+D="$T/dl-esc"; mkdir -p "$D"
+NO_COLOR=1 run o/r --install --dir="$D"
+check "a backslash in an asset name is shown as it is, never as an escape" '! has_esc "$T/out" && ! has_esc "$T/err" && grep -qF "evil_linux_amd64\\x1b" "$T/out"'
+NO_COLOR=1 run o/r --asset='a\x1b[31mX' --dir="$D"
+check "--asset with backslash escapes: refused, no escape reaches the terminal" '[[ $RC -eq 2 ]] && ! has_esc "$T/err" && ! has_esc "$T/out"'
+NO_COLOR=1 run --plain --releases '-\033[31mx' -- o/r
+check "an unknown option with backslash escapes is printed as typed" '[[ $RC -eq 2 ]] && ! has_esc "$T/err" && ! has_esc "$T/out"'
+NO_COLOR=1 run o/r --get '\033[31mx' --dir="$D"
+check "--get with backslash escapes: the message prints them as typed" '! has_esc "$T/out" && ! has_esc "$T/err"'
+
+# --asset is exact after decoding, whatever the hostile names around it
+base
+mk_assets assets.html v2.0.0 "nul%00b" nulb
+assets_page
+serve_file "nul%00b" v2.0.0 EVIL
+serve_file nulb v2.0.0 GOOD
+D="$T/dl-nul"; mkdir -p "$D"
+run o/r --asset=nulb --dir="$D"
+check "--asset: a name with %00 is never taken for the name without it" '[[ $RC -eq 0 && "$(cat "$D/nulb")" == GOOD ]]'
+mk_assets assets.html v2.0.0 "foo%0a" "bar%0a%0a"
+run o/r --asset=foo --dir="$D"
+check "--asset: a name that ends with a newline is not that name" '[[ $RC -eq 1 ]]'
+mk_assets assets.html v2.0.0 "a%2Bb" "a+b"
+run o/r --asset=a+b --dir="$D"
+check "--asset: two assets with the same decoded name: exit 2, nothing downloaded" '[[ $RC -eq 2 && "$ERR" == *"Several assets"* && ! -e "$D/a+b" ]]'
+run o/r --install --asset=a+b --dir="$D"
+check "--install --asset: two assets with the same decoded name: exit 2" '[[ $RC -eq 2 ]]'
+
+# the automatic choice of --install and the recommendation of --detect
+base
+junk=(r_linux_amd64.apk r_linux_amd64.pkg r_linux_amd64.msi r_linux_amd64.dmg r_linux_amd64.sig r_linux_amd64.pem
+    r_linux_amd64.sbom.json r_linux_amd64.tar.xz r_linux_amd64.sha512sum r_linux_amd64.asc r_linux_amd64.minisig
+    r_linux_amd64.intoto.jsonl r_linux_amd64.txt checksums_linux_amd64.txt r_linux_amd64.snap r_linux_amd64.7z)
+mk_assets assets.html v2.0.0 "${junk[@]}"
+assets_page
+run o/r --install --dir="$T/dl-nul"
+check "--install: no package, sum, signature or unreadable archive is picked on its own" '[[ $RC -eq 1 && "$OUT$ERR" == *"No suitable asset"* ]]'
+run --assets --detect --plain -- o/r
+check "plain assets --detect: none of them is recommended" '[[ $RC -eq 0 && "$OUT" != *recommended* ]]'
+mk_assets assets.html v2.0.0 r_linux_amd64.TAR.GZ
+mkdir -p "$T/pkg3"; printf '#!/bin/sh\necho up\n' > "$T/pkg3/r"; chmod +x "$T/pkg3/r"
+tar czf "$FAKE_DIR/files-r4.tgz" -C "$T/pkg3" r
+map_add https://github.com/o/r/releases/download/v2.0.0/r_linux_amd64.TAR.GZ 200 files-r4.tgz
+D="$T/dl-up"; mkdir -p "$D"
+run o/r --install --dir="$D"
+check "--install: an archive name in capitals is extracted" '[[ $RC -eq 0 && "$("$D/r")" == up ]]'
+
+# --install and the binary that is already there
+base
+mk_assets assets.html v2.0.0 r_linux_amd64.tar.gz
+assets_page
+map_add https://github.com/o/r/releases/download/v2.0.0/r_linux_amd64.tar.gz 200 files-r2.tgz
+D="$T/dl-ins"; mkdir -p "$D"
+echo OLD > "$D/r"; chmod 444 "$D/r"
+run o/r --install --dir="$D"
+check "--install replaces a read-only binary" '[[ $RC -eq 0 && "$("$D/r")" == v2 ]]'
+rm -f "$D/r"; echo KEEP > "$T/ptarget"; ln -s "$T/ptarget" "$D/r"
+run o/r --install --dir="$D"
+check "--install replaces a symlink and never writes through it" '[[ $RC -eq 0 && "$(cat "$T/ptarget")" == KEEP && ! -L "$D/r" && "$("$D/r")" == v2 ]]'
+rm -f "$D/r"; mkdir "$D/r"
+run o/r --install --dir="$D"
+check "--install refuses a folder with the name of the binary" '[[ $RC -eq 1 && "$OUT$ERR" == *"is a folder"* && -z "$(ls -A "$D/r")" ]]'
+rmdir "$D/r"
+ls -A "$D" > "$T/ins.list"
+check "--install leaves no temporary file in the install folder" '[[ "$(cat "$T/ins.list")" == "" ]]'
+map_add https://github.com/o/r/releases/download/v2.0.0/r_linux_amd64.tar.gz 404 -
+run o/r --install --dir="$D"
+check "--install: a 404 on the archive installs nothing" '[[ $RC -eq 1 && -z "$(ls -A "$D")" ]]'
+H2="$T/h2"; mkdir -p "$H2"; echo x > "$H2/.local"
+map_add https://github.com/o/r/releases/download/v2.0.0/r_linux_amd64.tar.gz 200 files-r2.tgz
+HOME="$H2" run o/r --install --user
+check "--install --user: ~/.local/bin cannot be created: exit 1, no fallback to ~/bin" '[[ $RC -eq 1 && ! -e "$H2/bin" ]]'
+if [[ ! -w /usr/local/bin ]]; then
+    H3="$T/h3"; mkdir -p "$H3"
+    HOME="$H3" run o/r --install
+    check "--install without --user: ~/.local/bin when /usr/local/bin is not writable" '[[ $RC -eq 0 && -x "$H3/.local/bin/r" && ! -e "$H3/bin" ]]'
+fi
+
+# --dir
+base
+mk_assets assets.html v2.0.0 a.bin
+assets_page
+serve_file a.bin v2.0.0 A
+run o/r --asset=a.bin '--dir=~'
+check "--dir=~ is the home folder" '[[ $RC -eq 0 && -e "$HOME/a.bin" ]]'
+mkdir -p "$T/ro"; chmod 500 "$T/ro"
+if [[ $(id -u) -ne 0 ]]; then
+    run o/r --asset=a.bin --dir="$T/ro"
+    check "--dir to a folder that cannot be written is refused" '[[ $RC -eq 1 && "$OUT$ERR" == *"not a writable folder"* ]]'
+fi
+chmod 700 "$T/ro"
+
+# --checksum keeps what was there and leaves nothing unverified
+mk_dl checksums.txt
+serve_file checksums.txt v2.0.0 "$OTHER  tool.bin"
+echo PRECIOUS > "$D/tool.bin"
+run o/r --asset=tool.bin --checksum --force --dir="$D"
+check "checksum mismatch with --force: the earlier file is kept, nothing else is left" \
+    '[[ $RC -ne 0 && "$(cat "$D/tool.bin")" == PRECIOUS && "$(ls -A "$D")" == tool.bin ]]'
+mk_dl
+echo PRECIOUS > "$D/tool.bin"
+run o/r --asset=tool.bin --checksum --force --dir="$D"
+check "no checksum file with --force: the earlier file is kept" '[[ $RC -ne 0 && "$(cat "$D/tool.bin")" == PRECIOUS ]]'
+mk_dl checksums.txt
+serve_file checksums.txt v2.0.0 "$OTHER  other.bin"
+run o/r --asset=tool.bin --checksum --dir="$D"
+check "file missing from the checksum list: the download is not left on disk" '[[ $RC -ne 0 && -z "$(ls -A "$D")" ]]'
+mk_dl checksums.txt
+serve_file checksums.txt v2.0.0 "$SUM"
+run o/r --asset=tool.bin --checksum --dir="$D"
+check "checksum: a lone hash in a list of several files is not taken for the file" '[[ $RC -ne 0 ]]'
+mk_dl checksums.txt
+serve_file checksums.txt v2.0.0 "$SUM  ./tool.bin"
+run o/r --asset=tool.bin --checksum --dir="$D"
+check "checksum: a ./ prefix on the name is accepted" '[[ $RC -eq 0 ]]'
+mk_dl checksums.txt
+serve_file checksums.txt v2.0.0 "$SUM  tool.bin"
+run o/r --asset=tool.bin --checksum=true --dir="$D"
+check "--checksum=true verifies" '[[ $RC -eq 0 && "$OUT" == *"Checksum verified"* ]]'
+mk_dl
+run o/r --asset=tool.bin --checksum=true --dir="$D"
+check "--checksum=true fails without a checksum file" '[[ $RC -ne 0 ]]'
+run o/r --asset=tool.bin --verify=true --dir="$D"
+check "--verify=true is the alias of --checksum=true" '[[ $RC -ne 0 ]]'
+run o/r --asset=tool.bin --checksum=false --dir="$D"
+check "--checksum=false does not verify" '[[ $RC -eq 0 ]]'
+mk_dl
+mk_assets assets.html v2.0.0 "zz%5Ctx" checksums.txt
+serve_file "zz%5Ctx" v2.0.0 CONTENT
+serve_file checksums.txt v2.0.0 "$(printf '%s  zz\tx' "$SUM")"
+run o/r --get zz --checksum --dir="$D"
+check "checksum: a backslash in a name is a backslash, not an escape of the list" '[[ $RC -ne 0 ]]'
+mk_dl checksums.txt
+serve_file checksums.txt v2.0.0 "$SUM  tool.bin"
+mkdir -p "$T/failbin"
+printf '#!/bin/sh\nexit 3\n' > "$T/failbin/sha256sum"; chmod +x "$T/failbin/sha256sum"
+OLDPATH=$PATH; PATH="$T/failbin:$PATH"
+run o/r --asset=tool.bin --checksum --dir="$D"
+PATH=$OLDPATH
+check "checksum: a hash tool that fails is not reported as a mismatch" '[[ $RC -ne 0 && "$OUT$ERR" == *"Could not compute"* && "$OUT$ERR" != *mismatch* ]]'
+SHAONLY="$T/shaonly"; mkdir -p "$SHAONLY"
+cp -P "$NOSHA"/* "$SHAONLY"/
+printf '#!/bin/sh\nshift 2\nexec %s "$@"\n' "$(command -v sha256sum)" > "$SHAONLY/shasum"; chmod +x "$SHAONLY/shasum"
+rm -f "$SHAONLY/sha256sum"
+OLDPATH=$PATH; PATH="$SHAONLY"
+run o/r --asset=tool.bin --checksum --dir="$D"
+PATH=$OLDPATH
+check "checksum: with only shasum available it still verifies" '[[ $RC -eq 0 && "$OUT" == *"Checksum verified"* ]]'
+base
+mk_dl
+D2="$T/dl-src"; mkdir -p "$D2"
+map_add https://github.com/o/r/archive/refs/tags/v2.0.0.zip 200 files/src.zip
+mkdir -p "$FAKE_DIR/files"; printf 'ZIPDATA' > "$FAKE_DIR/files/src.zip"
+run o/r --source zip --checksum --dir="$D2"
+check "--checksum with --source is a usage error: there is nothing to verify against" '[[ $RC -eq 2 && -z "$(ls -A "$D2")" ]]'
+run o/r --source zip --checksum=false --dir="$D2"
+check "--checksum=false with --source is fine" '[[ $RC -eq 0 ]]'
+
+# an interrupted download leaves nothing behind
+mk_dl
+export FAKE_SLEEP=2
+"$GFT" o/r --asset=tool.bin --dir="$D" > /dev/null 2>&1 < /dev/null &
+pid=$!
+sleep 1
+kill -TERM "$pid"
+wait "$pid" 2> /dev/null
+unset FAKE_SLEEP
+check "an interrupted download leaves no partial file" '[[ -z "$(ls -A "$D")" ]]'
+
+# the booleans do what they say
+base
+export GFT_CACHE_TTL=300
+mk_assets assets.html v2.0.0 a.bin
+assets_page
+run --assets --plain -- o/r
+run --assets --plain -- o/r
+check "cache: a second run within the TTL does not ask for the page again" '[[ $(grep -c "expanded_assets/v2.0.0" "$FAKE_DIR/calls") -eq 1 ]]'
+run o/r --asset=a.bin --dir="$T/dl-nul" --force
+check "cache: --asset reuses the page that --assets --plain cached" '[[ $(grep -c "expanded_assets/v2.0.0" "$FAKE_DIR/calls") -eq 1 ]]'
+run --assets --plain --no-cache=true -- o/r
+check "--no-cache=true asks for the page again" '[[ $(grep -c "expanded_assets/v2.0.0" "$FAKE_DIR/calls") -eq 2 ]]'
+run --assets --plain --no-cache=false -- o/r
+check "--no-cache=false uses the cache" '[[ $(grep -c "expanded_assets/v2.0.0" "$FAKE_DIR/calls") -eq 2 ]]'
+
+# commands stay commands as first argument; options after -- stay tags
+mkdir -p "$T/nogit"
+pushd "$T/nogit" > /dev/null || exit 1
+run stash
+popd > /dev/null || exit 1
+check "stash as the first argument is still the command" '[[ "$OUT$ERR" == *"Not a git repository"* ]]'
+base
+run -q -- o/r --plain
+check "after --, the tag '--plain' is a tag" '[[ "$OUT" == --plain && $RC -eq 0 ]]'
+base
+map_add https://github.com/o/r 500 -
+mk_releases releases.html "v2.0.0|Two|2026-03-02"
+map_add https://github.com/o/r/releases 200 releases.html
+run --releases --plain -- o/r
+check "plain: a repository page that answers 500 is exit 1 even if /releases answers" '[[ $RC -eq 1 && -z "$OUT" ]]'
+
 # ─── 1.2.2 stays the same for the old options ────────────────────────
 
 OLD="$T/gft-1.2.2"
@@ -544,7 +835,8 @@ if git -C "$ROOT" show 1.2.2:gft > "$OLD" 2>/dev/null; then
     mk_assets assets.html v2.0.0 tool_linux_amd64.tar.gz tool_darwin_arm64.tar.gz checksums.txt
     map_add https://github.com/o/r/releases/expanded_assets/v2.0.0 200 assets.html
     map_add https://github.com/o/r/releases/tag/v2.0.0 200 -
-    for args in "o/r" "o/r -q" "o/r v1.0.0" "o/r --assets" "o/r --detect" "o/r --releases" "o/r v1.0.0..v2.0.0" "o/r --pre -q" "o/r --no-color --assets"; do
+    for args in "o/r" "o/r -q" "o/r v1.0.0" "o/r --assets" "o/r --detect" "o/r --releases" "o/r v1.0.0..v2.0.0" "o/r --pre -q" "o/r --no-color --assets" \
+        "o/r --json" "o/r --get nomatch" "o/r v1.0.0 --assets" "o/r --list" "o/r --prerelease -q"; do
         # shellcheck disable=SC2086
         a=$(GFT_CACHE_DIR="$T/c.old" bash "$OLD" $args < /dev/null 2>&1)
         # shellcheck disable=SC2086
@@ -553,8 +845,10 @@ if git -C "$ROOT" show 1.2.2:gft > "$OLD" 2>/dev/null; then
         RC=0 OUT="$a" ERR="$b"
         check "1.2.2 and now print the same for 'gft $args'" '[[ "$a" == "$b" ]]'
     done
-else
+elif [[ "${GFT_TESTS_SKIP_OLD:-}" == 1 ]]; then
     echo "SKIP  no tag 1.2.2 here: the comparison with the previous release is not run"
+else
+    ko "the tag 1.2.2 is needed for the comparison with the previous release (GFT_TESTS_SKIP_OLD=1 skips it)"
 fi
 
 echo
