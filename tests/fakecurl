@@ -1,0 +1,59 @@
+#!/bin/bash
+# Fake curl for the gft tests, answering from the files of $FAKE_DIR.
+
+url="" out="" fmt="" fail=false maxtime=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        -w) fmt="$2"; shift 2 ;;
+        --max-time) maxtime="$2"; shift 2 ;;
+        --fail) fail=true; shift ;;
+        --*) shift ;;
+        -[a-zA-Z]*) [[ "$1" == *f* ]] && fail=true; shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+
+echo "$url" >> "$FAKE_DIR/calls"
+[[ -n "${FAKE_LOG_ARGS:-}" ]] && echo "max-time=$maxtime url=$url" >> "$FAKE_DIR/args"
+
+if [[ -n "${FAKE_SLEEP:-}" ]]; then
+    if [[ -n "$maxtime" ]] && awk -v s="$FAKE_SLEEP" -v m="$maxtime" 'BEGIN { exit !(s > m) }'; then
+        sleep "$maxtime"
+        exit 28
+    fi
+    sleep "$FAKE_SLEEP"
+fi
+
+status=404 file="" effective="$url"
+while IFS=$'\t' read -r u st f eff; do
+    [[ "$u" == "$url" ]] || continue
+    status="$st" file="$f"
+    [[ -z "$eff" ]] || effective="$eff"
+    break
+done < "$FAKE_DIR/map"
+
+if [[ "$status" == "000" ]]; then
+    exit 6
+fi
+
+if [[ -n "$fmt" ]]; then
+    fmt="${fmt//%\{http_code\}/$status}"
+    fmt="${fmt//%\{url_effective\}/$effective}"
+    printf '%s' "$fmt"
+fi
+
+if [[ "$fail" == true && "$status" -ge 400 ]]; then
+    exit 22
+fi
+
+body=/dev/null
+if [[ -n "$file" && "$file" != "-" ]]; then
+    body="$FAKE_DIR/$file"
+fi
+if [[ -n "$out" ]]; then
+    cat "$body" > "$out"
+else
+    cat "$body"
+fi
+exit 0
