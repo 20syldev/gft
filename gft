@@ -12,6 +12,7 @@ shopt -u patsub_replacement 2>/dev/null || true
 GFT_DIR="$HOME/.config/gft"
 CACHE_DIR="${GFT_CACHE_DIR:-$GFT_DIR/cache}"
 CACHE_TTL="${GFT_CACHE_TTL:-300}"
+[[ "$CACHE_TTL" =~ ^[0-9]{1,9}$ ]] && CACHE_TTL=$((10#$CACHE_TTL)) || CACHE_TTL=300
 PLAIN=false
 PLAIN_END=0
 # Kept in sync with the VERSION file by the release bump.
@@ -462,7 +463,7 @@ cache_key() {
 # Write a cache entry; a cache that cannot be written is never reported.
 cache_put() {
     local file="$1" tmp="$1.$$"
-    { mkdir -p "$CACHE_DIR" && printf '%s' "$2" > "$tmp" && mv -f "$tmp" "$file"; } 2>/dev/null \
+    { mkdir -p -- "$CACHE_DIR" && printf '%s' "$2" > "$tmp" && mv -f "$tmp" "$file"; } 2>/dev/null \
         || rm -f "$tmp" 2>/dev/null || true
 }
 
@@ -504,6 +505,10 @@ cache_fetch() {
 # Remove the cache entries (https_*), and the folder when it is gft's own and left empty.
 clear_cache() {
     local f
+    if [[ ! -r "$CACHE_DIR" || ! -x "$CACHE_DIR" ]]; then
+        echo -e "${RED}${SYM_FAIL} Cannot read the cache folder ${CACHE_DIR}${NC}" >&2
+        return 1
+    fi
     for f in "$CACHE_DIR"/https_*; do
         [[ -f "$f" ]] && rm -f -- "$f"
     done
@@ -1988,7 +1993,7 @@ compare_releases() {
 
     echo
     echo -e "${YELLOW}${SYM_BULLET} Compare on GitHub:${NC}"
-    echo -e "  ${CYAN}https://github.com/$REPO/compare/$(printable "$from")...$(printable "$to")${NC}"
+    echo -e "  ${CYAN}https://github.com/$REPO/compare/$(tag_url "$from")...$(tag_url "$to")${NC}"
 }
 
 # ─── Interactive download ────────────────────────────────────────────
@@ -2265,7 +2270,7 @@ printable() {
 
 # Print true or false for a boolean option value (true|false|1|0|yes|no|on|off, any case).
 parse_bool() {
-    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    case "${1,,}" in
         true|1|yes|on) echo true ;;
         false|0|no|off) echo false ;;
         *) return 1 ;;
@@ -2279,24 +2284,29 @@ set_bool() {
     printf -v "$1" '%s' "$value"
 }
 
+# $2 is 2 for the --source=VALUE form, a usage error; the separate form keeps its status 1.
 set_source() {
     MODE_SOURCE="$1"
     if [[ -z "$MODE_SOURCE" ]]; then
+        [[ "${2:-}" != 2 ]] || usage_error "--source requires an argument: zip or tar"
         echo -e "${RED}${SYM_FAIL} --source requires an argument: zip or tar${NC}" >&"$MSG_FD"
         exit 1
     fi
     case "$MODE_SOURCE" in
         zip|tar|tar.gz|tarball) ;;
         *)
+            [[ "${2:-}" != 2 ]] || usage_error "--source argument must be 'zip', 'tar' or 'tar.gz'"
             echo -e "${RED}${SYM_FAIL} --source argument must be 'zip' or 'tar'${NC}" >&"$MSG_FD"
             exit 1
             ;;
     esac
 }
 
+# $2 is 2 for the --dir=VALUE form, a usage error; the separate form keeps its status 1.
 set_dir() {
     DL_DIR="$1"
     if [[ -z "$DL_DIR" ]]; then
+        [[ "${2:-}" != 2 ]] || usage_error "--dir requires a folder argument"
         echo -e "${RED}${SYM_FAIL} --dir requires a folder argument${NC}" >&"$MSG_FD"
         exit 1
     fi
@@ -2327,7 +2337,7 @@ add_positional() {
 PLAIN_SEEN=false
 for arg in "$@"; do
     [[ "$arg" == "--" ]] && break
-    if [[ "$arg" == "--json" ]] || [[ "$arg" == "--plain" ]]; then
+    if [[ "$arg" == "--json" || "$arg" == "--plain" || "$arg" == --json=* || "$arg" == --plain=* ]]; then
         MSG_FD=2
         NO_COLOR=1
         setup_colors
@@ -2403,7 +2413,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --source=*)
-            set_source "${1#*=}"
+            set_source "${1#*=}" 2
             shift
             ;;
         --releases|--list)
@@ -2456,12 +2466,13 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --dir=*)
-            set_dir "${1#*=}"
+            set_dir "${1#*=}" 2
             # The shell expands a leading ~ only in the separate form, so do it here.
             case "$DL_DIR" in
                 "~") DL_DIR="$HOME" ;;
                 "~/"*) DL_DIR="$HOME/${DL_DIR#"~/"}" ;;
             esac
+            [[ -n "$DL_DIR" ]] || usage_error "--dir: ~ needs a home folder"
             shift
             ;;
         --asset)
