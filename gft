@@ -617,7 +617,8 @@ get_latest_tag() {
 
 resolve_tag() {
     local silent=false
-    if [[ "${MODE_QUIET:-false}" == true ]] || [[ "${MODE_JSON:-false}" == true ]]; then
+    if [[ "${MODE_QUIET:-false}" == true ]] || [[ "${MODE_JSON:-false}" == true ]] \
+        || [[ "$PLAIN" == true ]]; then
         silent=true
     fi
 
@@ -771,14 +772,10 @@ releases_from_api() {
     done <<< "$rows"
 }
 
-releases_from_web() {
-    local page
-    page=$(fetch_page "https://github.com/$REPO/releases")
-    [[ -n "$page" ]] || return 1
-
+# Rows from a releases page on stdin: tag (as in its link), title, first date, pre-release flag.
+parse_release_rows() {
     # One <section id="release-..."> per release: its title link, first ISO date and labels.
-    local rows
-    rows=$(printf '%s' "$page" | awk '
+    awk '
         function flush() {
             if (tag != "") print tag "\037" name "\037" date "\037" pre
             tag = ""; name = ""; date = ""; pre = "false"
@@ -796,7 +793,16 @@ releases_from_web() {
         }
         insec && /class="Label Label--warning[^"]*">Pre-release</ { pre = "true" }
         END { flush() }
-    ') || true
+    '
+}
+
+releases_from_web() {
+    local page
+    page=$(fetch_page "https://github.com/$REPO/releases")
+    [[ -n "$page" ]] || return 1
+
+    local rows
+    rows=$(printf '%s' "$page" | parse_release_rows) || true
 
     local tag name published prerelease
     while IFS=$'\037' read -r tag name published prerelease; do
@@ -881,6 +887,129 @@ list_releases() {
     if [[ "${MODE_PRE:-false}" != true ]]; then
         echo -e "  ${CYAN}Tip:${NC} use ${YELLOW}--pre${NC} to include pre-releases when resolving latest"
     fi
+}
+
+# ─── Plain output ────────────────────────────────────────────────────
+
+# What --plain refuses to print, matched on bytes (C locale): invalid UTF-8, Cf, C1 and line separators.
+PLAIN_UTF8=$'^([ -~]|[\xc2-\xdf][\x80-\xbf]|\xe0[\xa0-\xbf][\x80-\xbf]|[\xe1-\xec\xee\xef][\x80-\xbf][\x80-\xbf]|\xed[\x80-\x9f][\x80-\xbf]|\xf0[\x90-\xbf][\x80-\xbf][\x80-\xbf]|[\xf1-\xf3][\x80-\xbf][\x80-\xbf][\x80-\xbf]|\xf4[\x80-\x8f][\x80-\xbf][\x80-\xbf])*$'
+PLAIN_HIDDEN=$'\xc2[\x80-\x9f]|\xc2\xad|\xd8[\x80-\x85\x9c]|\xdb\x9d|\xdc\x8f|\xe0\xa2[\x90\x91]|\xe0\xa3\xa2|\xe1\xa0\x8e|\xe2\x80[\x8b-\x8f\xa8-\xae]|\xe2\x81[\xa0-\xaf]|\xef\xbb\xbf|\xef\xbf[\xb9-\xbb]|\xf0\x91\x82\xbd|\xf0\x91\x83\x8d|\xf0\x93\x90[\xb0-\xb8]|\xf0\x9b\xb2[\xa0-\xa3]|\xf0\x9d\x85[\xb3-\xba]|\xf3\xa0[\x80-\xbf]'
+
+# Decode what a page shows for a name: HTML entities, then percent-encoding.
+plain_decode() {
+    url_decode "$(html_decode "$1")"
+}
+
+# True when the decoded name $1 may be printed; $2 is its encoded form, which may not hold %00-%1f or %7f.
+plain_ok() {
+    local LC_ALL=C name="$1" raw
+    raw=$(html_decode "${2:-}")
+    [[ -n "$name" ]] || return 1
+    [[ ! "$raw" =~ %[01][0-9a-fA-F] ]] || return 1
+    [[ ! "$raw" =~ %[7][fF] ]] || return 1
+    [[ "$name" != *[[:cntrl:]]* ]] || return 1
+    [[ "$name" =~ $PLAIN_UTF8 ]] || return 1
+    [[ ! "$name" =~ $PLAIN_HIDDEN ]] || return 1
+    return 0
+}
+
+# A tag that cannot be taken for a range, a branch or the latest release.
+plain_tag_ok() {
+    local lower
+    lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$lower" in
+        latest|main|master) return 1 ;;
+        *..*) return 1 ;;
+    esac
+    return 0
+}
+
+# The newest release: a tag on stdout. Fails with 1 when there is none, 2 on a network error.
+plain_latest_tag() {
+    local out rc=0 tag page
+    if [[ "$MODE_PRE" != true ]]; then
+        out=$(curl_page -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest") || rc=$?
+        [[ $rc -eq 0 ]] || return 2
+        tag=$(printf '%s' "$out" | grep -oP '/releases/tag/\K[^/?]+') || true
+        if [[ -n "$tag" ]]; then
+            printf '%s' "$tag"
+            return 0
+        fi
+    fi
+    page=$(cache_fetch "https://github.com/$REPO/releases") || return 2
+    tag=$(printf '%s' "$page" | grep -o 'href="[^"]*/releases/tag/[^"]*"' | head -1 \
+        | sed 's/.*\/tag\///; s/".*//') || true
+    [[ -n "$tag" ]] || return 1
+    printf '%s' "$tag"
+}
+
+# --releases --plain: "tag<TAB>date" for the first page (10 at most), newest first, "prerelease" in a third column.
+plain_releases() {
+    local page rc=0
+    page=$(cache_fetch "https://github.com/$REPO/releases") || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        echo "gft: could not fetch the releases of $REPO" >&2
+        return 1
+    fi
+
+    local rows
+    rows=$(printf '%s' "$page" | parse_release_rows) || true
+    if [[ -z "$rows" ]]; then
+        # A page whose layout is not recognised still has its tag links: no dates, no pre-release flag.
+        rows=$(printf '%s' "$page" | grep -oP 'href="/[^"]+/releases/tag/\K[^"#]+' | awk '!seen[$0]++' \
+            | head -10 | sed 's/$/\o037\o037\o037false/') || true
+        [[ -z "$rows" ]] || echo "gft: release page layout not recognised, dates are missing" >&2
+    fi
+
+    local tag name date pre decoded seen=$'\n' count=0
+    while IFS=$'\037' read -r tag name date pre; do
+        [[ -n "$tag" ]] || continue
+        [[ "$pre" != true ]] || [[ "$MODE_PRE" == true ]] || continue
+        decoded=$(plain_decode "$tag")
+        plain_ok "$decoded" "$tag" || continue
+        plain_tag_ok "$decoded" || continue
+        [[ "$seen" != *$'\n'"$decoded"$'\n'* ]] || continue
+        seen+="$decoded"$'\n'
+        date="${date%%T*}"
+        [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || date=""
+        if [[ "$pre" == true ]]; then
+            printf '%s\t%s\tprerelease\n' "$decoded" "$date"
+        else
+            printf '%s\t%s\n' "$decoded" "$date"
+        fi
+        ((count++)) || true
+        [[ $count -lt 200 ]] || break
+    done <<< "$rows"
+}
+
+# --assets --plain: one file name per line; --detect puts the recommended ones first, marked in a second column.
+plain_assets() {
+    local assets rc=0
+    assets=$(get_assets) || rc=$?
+    if [[ $rc -eq 2 ]]; then
+        echo "gft: could not fetch the assets of $REPO $TAG" >&2
+        return 1
+    fi
+
+    local path raw name seen=$'\n' count=0 recommended="" others=""
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        raw="${path##*/}"
+        name=$(url_decode "$raw")
+        plain_ok "$name" "$raw" || continue
+        # A name that --asset would refuse is of no use to a caller.
+        [[ "$name" != */* && "$name" != *\\* && "$name" != .* ]] || continue
+        [[ "$seen" != *$'\n'"$name"$'\n'* ]] || continue
+        seen+="$name"$'\n'
+        if [[ "$MODE_DETECT" == true ]] && [[ "$(highlight_asset "$name")" == "match" ]] \
+            && auto_pick_ok "$name"; then
+            recommended+="$name"$'\t'"recommended"$'\n'
+        else
+            others+="$name"$'\n'
+        fi
+    done <<< "$assets"
+
+    printf '%s%s' "$recommended" "$others" | head -n 200
 }
 
 # ─── Platform detection ──────────────────────────────────────────────
@@ -2067,14 +2196,19 @@ add_positional() {
     fi
 }
 
-# With --json, usage errors from the loop below must not reach stdout either.
+# With --json or --plain, usage errors from the loop below must not reach stdout either.
+PLAIN_SEEN=false
 for arg in "$@"; do
     [[ "$arg" == "--" ]] && break
-    if [[ "$arg" == "--json" ]]; then
+    if [[ "$arg" == "--json" ]] || [[ "$arg" == "--plain" ]]; then
         MSG_FD=2
         NO_COLOR=1
         setup_colors
-        break
+        if [[ "$arg" == "--plain" ]]; then
+            PLAIN_SEEN=true
+            # One deadline for the whole run, counted from here.
+            PLAIN_END=$(( $(now_ms) + 1000 * $( [[ "${GFT_PLAIN_TIMEOUT:-}" =~ ^[1-9][0-9]*$ ]] && echo "$GFT_PLAIN_TIMEOUT" || echo 8 ) ))
+        fi
     fi
 done
 
@@ -2212,6 +2346,10 @@ while [[ $# -gt 0 ]]; do
             FORCE=true
             shift
             ;;
+        --plain)
+            PLAIN=true
+            shift
+            ;;
         --user)
             MODE_USER=true
             shift
@@ -2226,8 +2364,9 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -*)
-            echo -e "${RED}${SYM_FAIL} Unknown option: $1${NC}" >&"$MSG_FD"
+            echo -e "${RED}${SYM_FAIL} Unknown option: $(printable "$1")${NC}" >&"$MSG_FD"
             show_help >&"$MSG_FD"
+            [[ "$PLAIN_SEEN" == true ]] && exit 2
             exit 1
             ;;
         *)
@@ -2240,23 +2379,40 @@ done
 # Apply color settings after parsing
 setup_colors
 
-# Messages that are not the requested output go to stderr in JSON mode.
-if [[ "$MODE_JSON" == true ]]; then
+# Messages that are not the requested output go to stderr in JSON and plain modes.
+if [[ "$MODE_JSON" == true ]] || [[ "$PLAIN" == true ]]; then
     MSG_FD=2
+fi
+
+if [[ "$PLAIN" == true ]]; then
+    if [[ "$MODE_JSON" == true || "$MODE_QUIET" == true || "$MODE_INSTALL" == true \
+        || "$MODE_GET" == true || "$MODE_NOTES" == true || "$MODE_OPEN" == true \
+        || "$MODE_COMPARE" == true || -n "$MODE_SOURCE" || -n "$ASSET_NAME" ]]; then
+        usage_error "--plain only goes with --releases or --assets"
+    fi
+    if [[ "$MODE_LIST" != true && "$MODE_ASSETS" != true ]]; then
+        usage_error "--plain needs --releases or --assets"
+    fi
+    if [[ "$MODE_LIST" == true && "$MODE_ASSETS" == true ]]; then
+        usage_error "--plain cannot list releases and assets at once"
+    fi
 fi
 
 # Validate repository argument
 if [ -z "$REPO" ]; then
+    [[ "$PLAIN" != true ]] || usage_error "--plain needs a repository"
     show_help
     exit 0
 fi
 
-if [[ ! "$REPO" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+if [[ ! "$REPO" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]] || [[ "${REPO%%/*}" =~ ^\.+$ ]] \
+    || [[ "${REPO##*/}" =~ ^\.\.?$ ]]; then
     {
-        echo -e "${RED}${SYM_FAIL} Invalid repository format: '$REPO'${NC}"
+        echo -e "${RED}${SYM_FAIL} Invalid repository format: '$(printable "$REPO")'${NC}"
         echo -e "  Expected: ${YELLOW}username/repository${NC}"
         echo -e "  Example:  ${YELLOW}nodejs/node${NC}"
     } >&"$MSG_FD"
+    [[ "$PLAIN" == true ]] && exit 2
     exit 1
 fi
 
@@ -2292,12 +2448,31 @@ if [[ "$MODE_DETECT" == true ]]; then
     detect_platform
 fi
 
-if [[ "$MODE_QUIET" != true ]] && [[ "$MODE_JSON" != true ]]; then
+if [[ "$MODE_QUIET" != true ]] && [[ "$MODE_JSON" != true ]] && [[ "$PLAIN" != true ]]; then
     echo -e "${SYM_ARROW} Looking up ${YELLOW}$REPO${NC} (${CYAN}$TAG${NC})..."
 fi
 
 # Check repo exists
 check_repository_exists
+
+# Plain output: nothing but the entries on stdout
+if [[ "$PLAIN" == true ]]; then
+    if [[ "$MODE_LIST" == true ]]; then
+        plain_releases
+        exit $?
+    fi
+    if [[ "$TAG" == "latest" ]]; then
+        rc=0
+        TAG=$(plain_latest_tag) || rc=$?
+        if [[ $rc -eq 2 ]]; then
+            echo "gft: could not look up the latest release of $REPO" >&2
+            exit 1
+        fi
+        [[ $rc -eq 0 ]] || exit 0
+    fi
+    plain_assets
+    exit $?
+fi
 
 # Handle list mode
 if [[ "$MODE_LIST" == true ]]; then
