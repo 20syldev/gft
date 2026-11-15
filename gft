@@ -579,9 +579,7 @@ check_repository_exists() {
         return 0
     elif [ "$response" = "404" ]; then
         {
-            echo -e "${RED}${SYM_FAIL} Repository not found:${NC} $REPO"
-            echo -e "  Expected format: ${YELLOW}username/repository${NC}"
-            echo -e "  Example: ${YELLOW}nodejs/node${NC}"
+            echo -e "${RED}${SYM_FAIL} Repository not found or private:${NC} $REPO (expected ${YELLOW}username/repository${NC})"
         } >&"$MSG_FD"
         exit 1
     else
