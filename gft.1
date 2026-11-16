@@ -79,7 +79,7 @@ terminal, gft lists the matches on standard error and exits with status 2.
 Download the asset whose file name is exactly
 .IR name ,
 after URL decoding. No pattern, no substring, no menu. The name must be a plain
-file name (no slash, no leading dot). Used alone it downloads the asset; with
+file name (no slash, no backslash, no leading dot). Used alone it downloads the asset; with
 .B \-\-install
 it installs it. Without a match gft exits with status 1.
 .TP
@@ -120,8 +120,10 @@ to find the right asset when no
 .B \-\-get
 or
 .B \-\-asset
-is given; it never picks a package (\fI.deb .rpm .apk .pkg .msi .dmg\fR) or a
-checksum or signature file.
+is given; it only picks a \fI.tar.gz\fR, \fI.tgz\fR, \fI.zip\fR or a plain binary, never a
+package (\fI.deb .rpm .apk .pkg .msi .dmg\fR), a checksum, signature or SBOM file, or an
+archive that gft cannot extract. The new binary is written next to the old one and
+renamed over it, so a read-only or running binary and a symlink are replaced.
 .TP
 .BR \-\-releases ", " \-\-list
 List all available releases for the repository. With
@@ -150,7 +152,11 @@ from the list, no hash, or no
 or
 .BR shasum (1);
 a mismatch removes the downloaded file. This checks integrity, not
-authenticity: the list comes from the same release.
+authenticity: the list comes from the same release. The download is checked before it
+is moved into place: when the check fails, a file that was there before is kept. It cannot
+be combined with
+.B \-\-source
+(usage error, status 2).
 .TP
 .BI \-\-dir " folder"
 Write the files of
@@ -357,7 +363,7 @@ spinner or colour); messages go to standard error. They read the public pages
 only, never
 .BR gh ,
 so nothing is listed for a private repository. The whole run has one time limit
-(\fBGFT_PLAIN_TIMEOUT\fR, 8 seconds).
+(\fBGFT_PLAIN_TIMEOUT\fR, 8 seconds). If it runs out while a long list is read, the list is cut short.
 .TP
 .B \-\-releases \-\-plain
 The first page of releases (ten at most), newest first:
@@ -478,7 +484,7 @@ A cache that cannot be written is never reported.
 .B GFT_PLAIN_TIMEOUT
 Time limit, in seconds, of a whole
 .B \-\-plain
-run, every request included (default: 8).
+run, every request included: 1 to 9999 (default: 8).
 .TP
 .B GFT_NO_SPINNER
 When set to any value, disables the loading spinner shown during network

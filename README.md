@@ -264,7 +264,7 @@ Commands are only recognised as the first argument: `gft user/update` or `gft cl
 | ------ | ------- |
 | 0      | Success, including a list that is empty |
 | 1      | An error: repository or release not found, network error, a file that exists, a failed download or checksum |
-| 2      | A usage error: an invalid option value or combination, an `--asset` that is not a plain file name, several matches for `--get` without a terminal |
+| 2      | A usage error: an invalid option value or combination, an `--asset` that is not a plain file name or that names several assets, several matches for `--get` without a terminal |
 
 Options that were already there keep the status 1 for their own usage errors (`--source rar`, an unknown option, a missing `--dir`).
 
@@ -286,28 +286,30 @@ gh_2.104.0_linux_386.deb
 - `--releases --plain`: the first page of releases (ten at most), newest first, as `tag<TAB>YYYY-MM-DD`, with a third column `prerelease` for a pre-release. Pre-releases only appear with `--pre`.
 - `--assets --plain`: the file names of the assets, decoded and without duplicates. With `--detect` the assets that fit this system come first, with `recommended` in a second column (packages, checksums and signatures are never recommended, as `--install` never picks them).
 - The words `recommended` and `prerelease` are fixed: they are not translated and not affected by the locale.
-- Names that cannot be told apart from a plain file name or tag are dropped: empty lines, control and invisible characters (including bidirectional marks and zero-width characters), bytes that are not valid UTF-8, tabs in a name, duplicates, tags with `..`, the tags `latest`, `main` and `master`, and for assets any name with a slash or a leading dot. At most 200 lines are printed.
+- Names that cannot be told apart from a plain file name or tag are dropped: empty lines, control and invisible characters (including bidirectional marks and zero-width characters), bytes that are not valid UTF-8, tabs in a name, duplicates, tags with `..`, the tags `latest`, `main` and `master`, and for assets any name with a slash, a backslash or a leading dot. At most 200 lines are printed. A `%` that is not part of an escape stays as it is.
 - It reads public pages only (never `gh` and never the API): nothing is listed for a private repository.
-- The whole run, every request included, has one time limit of 8 seconds (`GFT_PLAIN_TIMEOUT`).
-- Exit status: 0 with an empty output when there is nothing to list, 1 for a network error or a repository that does not exist, 2 for a usage error. `--plain` goes with `--releases` or `--assets` (`--detect` counts) and nothing else.
+- The whole run, every request included, has one time limit of 8 seconds (`GFT_PLAIN_TIMEOUT`, whole seconds from 1 to 9999). If the time runs out while a long list is being read, the list is cut short and a message goes to standard error.
+- A tag given to `--assets --plain` may be the decoded one that `--releases --plain` printed (`v1#x`, `astro@7`): gft encodes it for the request.
+- Exit status: 0 with an empty output when there is nothing to list, 1 for a network error or a repository that does not exist, 2 for a usage error. `--plain` goes with `--releases` or `--assets` (`--detect` counts) and with no other mode (`--json`, `-q`, `--get`, `--install`…); options that do not apply to a list (`--force`, `--dir`, `--checksum`) are accepted and ignored.
 
 ### Downloads
 
-- `--asset=NAME` matches the file name exactly, after URL decoding: no pattern, no substring, no menu. A name that is not a plain file name (a slash, a leading dot, a control character) is refused. It works alone (download) and with `--install`. Without a match the status is 1.
+- `--asset=NAME` matches the file name exactly, after URL decoding: no pattern, no substring, no menu. A name that is not a plain file name (a slash, a backslash, a leading dot, a control character) is refused. It works alone (download) and with `--install`. Without a match the status is 1, and when two assets decode to the same name gft stops with status 2 instead of choosing one.
 - `--get` is unchanged: its argument is a basic regular expression for `grep -i`, so `.` matches any character. When several assets match and there is no terminal, gft lists them on standard error and exits with status 2 instead of waiting for an answer.
-- A download never replaces an existing file (`--get`, `--asset`, `--source`): pass `--force`. `--install` still replaces the installed binary, which is how an update works. A failed or interrupted download leaves nothing behind, and an HTTP error page is never saved as the file.
+- A download never replaces an existing file (`--get`, `--asset`, `--source`): pass `--force`. `--install` still replaces the installed binary, which is how an update works: the new binary is written next to it and renamed over it, so a read-only or running binary and a symlink are replaced and never written through. A failed or interrupted download leaves nothing behind, and an HTTP error page is never saved as the file.
 - `--source` names the file after the tag, made harmless: a slash or any character outside letters, digits and `._@+-` becomes `_`, and leading dots are removed.
-- `--install` without `--asset` or `--get` never picks a package (`.deb`, `.rpm`, `.apk`, `.pkg`, `.msi`, `.dmg`) or a checksum or signature file.
+- `--install` without `--asset` or `--get` only picks a `.tar.gz`, `.tgz`, `.zip` or a plain binary: never a package (`.deb`, `.rpm`, `.apk`, `.pkg`, `.msi`, `.dmg`, `.snap`…), a checksum, signature or SBOM file, or an archive that gft cannot extract (`.tar.xz`, `.7z`…). Name such a file with `--asset` to install it anyway.
 - `--install --user` installs into `~/.local/bin`, created if needed. Without it gft keeps its order: `/usr/local/bin` when writable, else `~/.local/bin`, else `~/bin`. `--user` and `--dir` cannot be combined.
 
 ### Checksums
 
-`--checksum` checks the download against a checksum file of the same release, and fails (non-zero status) whenever it cannot: no checksum file, the file missing from the list, no hash found, a hash that is neither SHA-256 nor SHA-512, no `sha256sum` or `shasum` (`sha512sum` for SHA-512), or the checksum file not downloadable. On a mismatch the downloaded file is removed. The names in the list are compared exactly (a leading `*` is ignored), and a file that holds a single hash counts only for the file it is named after (`app.tar.gz.sha256`). This proves that the download is intact, not that it is authentic: the list comes from the same release.
+`--checksum` checks the download against a checksum file of the same release, and fails (non-zero status) whenever it cannot: no checksum file, the file missing from the list, no hash found, a hash that is neither SHA-256 nor SHA-512, no `sha256sum` or `shasum` (`sha512sum` for SHA-512), or the checksum file not downloadable. The download is checked before it is moved into place: on a mismatch, or any other failure, it is removed and a file that was there before (with `--force`) is kept. `--checksum` does not go with `--source` (a source archive has no checksum file): that is a usage error, status 2. The names in the list are compared exactly (a leading `*` is ignored), and a file that holds a single hash counts only for the file it is named after (`app.tar.gz.sha256`). This proves that the download is intact, not that it is authentic: the list comes from the same release.
 
 ### Other
 
 - `-q` on a repository without any release prints `No release found` on standard error and exits with status 1, instead of printing `main`.
 - `gft user/repo v1..v2` compares the decoded tags, so scoped tags such as `astro@7.0.0` are found.
+- `--clear-cache` removes the cache entries only (the files that gft wrote), not the other files of the folder.
 - `--` ends the options: a tag such as `--upgrade` or `update` is then a tag. `update`, `delete`, `uninstall` and `stash` are commands only as the first argument.
 
 ## JSON output
@@ -361,7 +363,7 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 | `GITHUB_TOKEN`   | Read by `gh` (when installed) to authenticate; gft itself does not use it |
 | `GFT_CACHE_TTL`  | Cache TTL in seconds (default: 300)                   |
 | `GFT_CACHE_DIR`  | Folder of the response cache (default: `~/.config/gft/cache`); `--clear-cache` only removes the cache entries (`https_*`) it holds |
-| `GFT_PLAIN_TIMEOUT` | Time limit of `--plain` in seconds, for the whole run (default: 8) |
+| `GFT_PLAIN_TIMEOUT` | Time limit of `--plain` in seconds, for the whole run: 1 to 9999 (default: 8) |
 | `GFT_NO_SPINNER` | Set to any value to disable the loading spinner       |
 | `GFT_ASCII`      | Set to any value to force ASCII-only symbols          |
 
@@ -435,3 +437,9 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 - Without `--pre`, resolving the latest release cuts a tag containing a `/` at the slash. Give the tag explicitly (`gft owner/repo vscope/1.2.3`).
 - With `--pre`, `-q` prints the tag as GitHub encodes it in the page (`core%4013.4.0`); `--json` decodes it (`core@13.4.0`).
 - `--releases` and `--releases --json` only cover the first page of releases (about ten).
+
+## Development
+
+`tests/gft.sh` runs gft against a fake `curl` and pages built on the spot: no network, no access to your `~/.config/gft`. `tests/gft.sh NAME` runs the checks whose name contains NAME, and `GFT_TESTS_CLEAN=1` removes the work folder at the end. The comparison with the previous release needs the tag `1.2.2` (`GFT_TESTS_SKIP_OLD=1` skips it). Run the tests before tagging a release.
+
+The fake `curl` (`tests/fakecurl`) reads `$FAKE_DIR/map`, one line per URL: `URL<TAB>STATUS<TAB>FILE[<TAB>EFFECTIVE_URL]`. `FILE` is relative to `$FAKE_DIR` (`-` for an empty body) and an unlisted URL answers 404. Every call is logged in `$FAKE_DIR/calls`, and `$FAKE_SLEEP` seconds of delay per call are cut short by `--max-time` like the real thing (exit status 28).
