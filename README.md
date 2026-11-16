@@ -218,41 +218,41 @@ When `gh` CLI is installed and authenticated, gft reads release data from the Gi
 
 Commands are only recognised as the first argument: `gft user/update` or `gft cli/cli stash` never runs a command.
 
-| Command                  | Description                          |
-| ------------------------ | ------------------------------------ |
-| `gft update`             | Upgrade gft to the latest version (prints the apt command instead when installed by apt) |
-| `gft delete`             | Uninstall gft, alias: `uninstall` (prints the apt command instead when installed by apt) |
-| `gft stash [action]`     | Manage git stashes (list, show, drop, clean) |
+| Command              | Description                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `gft update`         | Upgrade gft to the latest version (prints the apt command instead when installed by apt) |
+| `gft delete`         | Uninstall gft, alias: `uninstall` (prints the apt command instead when installed by apt) |
+| `gft stash [action]` | Manage git stashes (list, show, drop, clean)                                             |
 
 ## Options
 
-| Option                  | Description                                    |
-| ----------------------- | ---------------------------------------------- |
-| `--`                    | End of options: what follows is a repo or tag  |
-| `-h, --help`            | Show help                                      |
-| `-v, --version`         | Show version                                   |
-| `--check-update`        | Check if a newer version of gft is available (older, up to date or newer than the latest release) |
-| `--upgrade`             | Upgrade gft to the latest version (same as `gft update`) |
-| `--releases, --list`    | List all available releases                    |
-| `--assets`              | List release binary assets                     |
-| `--detect`              | Auto-detect OS/arch, highlight matching assets |
-| `--get <pattern>`       | Download the asset matching a basic regular expression (`grep -i`); several matches ask which one |
-| `--asset <name>`        | Download the asset with exactly this file name, or install it with `--install` |
-| `--checksum, --verify`  | Verify the SHA-256 (or SHA-512) of a download from the release checksum file; fails when it cannot |
-| `--install`             | Download, extract and install binary to PATH   |
-| `--user`                | With `--install`: install to `~/.local/bin` (never `/usr/local/bin`) |
-| `--force`               | Replace an existing file; downloads refuse to otherwise |
-| `--plain`               | With `--releases` or `--assets`: one entry per line, nothing else |
-| `--dir <folder>`        | Write `--get`/`--asset`/`--source` files, the interactive (z)ip/(t)ar download and the `--install` binary there |
-| `--notes`               | Show release notes                             |
-| `--json`                | Output as JSON                                 |
-| `-q, --quiet`           | Output version tag only                        |
-| `--pre, --prerelease`   | Include pre-releases when resolving latest (with `--releases --plain`: list them) |
-| `--source zip\|tar`     | Download source archive non-interactively      |
-| `--open`                | Open release page in browser                   |
-| `--no-color`            | Disable colored output                         |
-| `--no-cache`            | Bypass response cache                          |
-| `--clear-cache`         | Clear all cached responses                     |
+| Option                 | Description                                                                                                     |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `--`                   | End of options: what follows is a repo or tag                                                                   |
+| `-h, --help`           | Show help                                                                                                       |
+| `-v, --version`        | Show version                                                                                                    |
+| `--check-update`       | Check if a newer version of gft is available (older, up to date or newer than the latest release)               |
+| `--upgrade`            | Upgrade gft to the latest version (same as `gft update`)                                                        |
+| `--releases, --list`   | List all available releases                                                                                     |
+| `--assets`             | List release binary assets                                                                                      |
+| `--detect`             | Auto-detect OS/arch, highlight matching assets                                                                  |
+| `--get <pattern>`      | Download the asset matching a basic regular expression (`grep -i`); several matches ask which one               |
+| `--asset <name>`       | Download the asset with exactly this file name, or install it with `--install`                                  |
+| `--checksum, --verify` | Verify the SHA-256 (or SHA-512) of a download from the release checksum file; fails when it cannot              |
+| `--install`            | Download, extract and install binary to PATH                                                                    |
+| `--user`               | With `--install`: install to `~/.local/bin` (never `/usr/local/bin`)                                            |
+| `--force`              | Replace an existing file; downloads refuse to otherwise                                                         |
+| `--plain`              | With `--releases` or `--assets`: one entry per line, nothing else                                               |
+| `--dir <folder>`       | Write `--get`/`--asset`/`--source` files, the interactive (z)ip/(t)ar download and the `--install` binary there |
+| `--notes`              | Show release notes                                                                                              |
+| `--json`               | Output as JSON                                                                                                  |
+| `-q, --quiet`          | Output version tag only                                                                                         |
+| `--pre, --prerelease`  | Include pre-releases when resolving latest (with `--releases --plain`: list them)                               |
+| `--source zip\|tar`    | Download source archive non-interactively                                                                       |
+| `--open`               | Open release page in browser                                                                                    |
+| `--no-color`           | Disable colored output                                                                                          |
+| `--no-cache`           | Bypass response cache                                                                                           |
+| `--clear-cache`        | Clear all cached responses                                                                                      |
 
 `--dir`, `--source` and `--asset` also take the form `--option=value`, and `--pre`, `--no-cache` and `--checksum` (alias `--verify`) take `=true|false` (also `1`, `0`, `yes`, `no`, `on`, `off`, in any case). The last occurrence on the line wins, and an invalid value is a usage error (exit status 2). `--dir=~` and `--dir=~/folder` expand the tilde themselves. `--dir` still needs an existing, writable folder.
 
@@ -260,10 +260,10 @@ Commands are only recognised as the first argument: `gft user/update` or `gft cl
 
 ### Exit status
 
-| Status | Meaning |
-| ------ | ------- |
-| 0      | Success, including a list that is empty |
-| 1      | An error: repository or release not found, network error, a file that exists, a failed download or checksum |
+| Status | Meaning                                                                                                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0      | Success, including a list that is empty                                                                                                                                        |
+| 1      | An error: repository or release not found, network error, a file that exists, a failed download or checksum                                                                    |
 | 2      | A usage error: an invalid option value or combination, an `--asset` that is not a plain file name or that names several assets, several matches for `--get` without a terminal |
 
 The separate forms of options that were already there keep the status 1 for their own usage errors (`--source rar`, a missing `--dir`, an unknown option). Their new `=` forms (`--source=rar`, `--dir=`) are usage errors with status 2, like an invalid boolean.
@@ -318,38 +318,38 @@ gh_2.104.0_linux_386.deb
 
 ```json
 {
-  "schema": 1,
-  "repository": "cli/cli",
-  "tag": "v2.104.0",
-  "name": "GitHub CLI 2.104.0",
-  "published_at": "2026-11-12T19:03:51Z",
-  "prerelease": false,
-  "release_url": "https://github.com/cli/cli/releases/tag/v2.104.0",
-  "repo_url": "https://github.com/cli/cli",
-  "zip_url": "https://github.com/cli/cli/archive/refs/tags/v2.104.0.zip",
-  "tarball_url": "https://github.com/cli/cli/archive/refs/tags/v2.104.0.tar.gz",
-  "source": "api",
-  "assets": [
-    {
-      "name": "gh_2.104.0_checksums.txt",
-      "url": "https://github.com/cli/cli/releases/download/v2.104.0/gh_2.104.0_checksums.txt",
-      "digest": "sha256:180df77fb931591d5d65e33f02a76c9ade314d1c335569af73cc6c8fcb365d2c"
-    }
-  ]
+    "schema": 1,
+    "repository": "cli/cli",
+    "tag": "v2.104.0",
+    "name": "GitHub CLI 2.104.0",
+    "published_at": "2026-11-12T19:03:51Z",
+    "prerelease": false,
+    "release_url": "https://github.com/cli/cli/releases/tag/v2.104.0",
+    "repo_url": "https://github.com/cli/cli",
+    "zip_url": "https://github.com/cli/cli/archive/refs/tags/v2.104.0.zip",
+    "tarball_url": "https://github.com/cli/cli/archive/refs/tags/v2.104.0.tar.gz",
+    "source": "api",
+    "assets": [
+        {
+            "name": "gh_2.104.0_checksums.txt",
+            "url": "https://github.com/cli/cli/releases/download/v2.104.0/gh_2.104.0_checksums.txt",
+            "digest": "sha256:180df77fb931591d5d65e33f02a76c9ade314d1c335569af73cc6c8fcb365d2c"
+        }
+    ]
 }
 ```
 
-| Key            | Type            | Notes                                                    |
-| -------------- | --------------- | -------------------------------------------------------- |
-| `schema`       | integer         | `1`; raised only on an incompatible change               |
-| `repository`   | string          | As given, or its current name if it was renamed or transferred |
-| `tag`          | string          | Release tag                                              |
-| `name`         | string          | Release title, or the tag when the release has none      |
-| `published_at` | string \| null  | Publication date, ISO 8601 UTC                           |
-| `prerelease`   | boolean         |                                                          |
-| `release_url`, `repo_url`, `zip_url`, `tarball_url` | string |                                   |
-| `source`       | string          | `"api"` (through `gh`) or `"web"` (GitHub pages)         |
-| `assets`       | array           | Sorted by name: `name`, `url` (strings), `digest` (`"sha256:..."` or null) |
+| Key                                                 | Type           | Notes                                                                      |
+| --------------------------------------------------- | -------------- | -------------------------------------------------------------------------- |
+| `schema`                                            | integer        | `1`; raised only on an incompatible change                                 |
+| `repository`                                        | string         | As given, or its current name if it was renamed or transferred             |
+| `tag`                                               | string         | Release tag                                                                |
+| `name`                                              | string         | Release title, or the tag when the release has none                        |
+| `published_at`                                      | string \| null | Publication date, ISO 8601 UTC                                             |
+| `prerelease`                                        | boolean        |                                                                            |
+| `release_url`, `repo_url`, `zip_url`, `tarball_url` | string         |                                                                            |
+| `source`                                            | string         | `"api"` (through `gh`) or `"web"` (GitHub pages)                           |
+| `assets`                                            | array          | Sorted by name: `name`, `url` (strings), `digest` (`"sha256:..."` or null) |
 
 When the release cannot be found, nothing is printed on stdout, the error goes to stderr and the exit status is 1.
 
@@ -357,15 +357,15 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 
 ## Environment variables
 
-| Variable         | Description                                           |
-| ---------------- | ----------------------------------------------------- |
-| `NO_COLOR`       | Set to any value to disable colors                    |
-| `GITHUB_TOKEN`   | Read by `gh` (when installed) to authenticate; gft itself does not use it |
-| `GFT_CACHE_TTL`  | Cache TTL in seconds (default: 300)                   |
-| `GFT_CACHE_DIR`  | Folder of the response cache (default: `~/.config/gft/cache`); `--clear-cache` only removes the cache entries (`https_*`) it holds |
-| `GFT_PLAIN_TIMEOUT` | Time limit of `--plain` in seconds, for the whole run: 1 to 9999 (default: 8) |
-| `GFT_NO_SPINNER` | Set to any value to disable the loading spinner       |
-| `GFT_ASCII`      | Set to any value to force ASCII-only symbols          |
+| Variable            | Description                                                                                                                        |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `NO_COLOR`          | Set to any value to disable colors                                                                                                 |
+| `GITHUB_TOKEN`      | Read by `gh` (when installed) to authenticate; gft itself does not use it                                                          |
+| `GFT_CACHE_TTL`     | Cache TTL in seconds (default: 300)                                                                                                |
+| `GFT_CACHE_DIR`     | Folder of the response cache (default: `~/.config/gft/cache`); `--clear-cache` only removes the cache entries (`https_*`) it holds |
+| `GFT_PLAIN_TIMEOUT` | Time limit of `--plain` in seconds, for the whole run: 1 to 9999 (default: 8)                                                      |
+| `GFT_NO_SPINNER`    | Set to any value to disable the loading spinner                                                                                    |
+| `GFT_ASCII`         | Set to any value to force ASCII-only symbols                                                                                       |
 
 ## Output example
 

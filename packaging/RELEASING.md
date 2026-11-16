@@ -10,35 +10,36 @@ the maintainer reviews, annotates and publishes.
   tag equals `VERSION`, installs `lintian`, `minisign` and `nfpm`, builds the package, signs the
   checksums, verifies everything with `packaging/verify.sh` and creates the draft release.
 - The files attached to the draft:
-  - `gft_<version>_all.deb`: one package for every architecture, `Package: gft`, Debian version
-    `<version>-1`. It installs `/usr/bin/gft` and `/usr/bin/gfv` (a symlink), the bash and zsh
-    completions, the man page (`gft.1.gz`, `gfv.1.gz`), `/usr/share/doc/gft/copyright` (MIT) and
-    `/usr/share/gft/install-method`;
-  - `gft_<version>_checksums.txt`: the SHA-256 of the `.deb`, nothing else;
-  - `gft_<version>_checksums.txt.minisig`: the minisign signature of that file. Its trusted comment
-    holds the tab separated fields `project:gft`, `version`, `tag`, `channel:stable`, `timestamp`
-    and `file`.
+    - `gft_<version>_all.deb`: one package for every architecture, `Package: gft`, Debian version
+      `<version>-1`. It installs `/usr/bin/gft` and `/usr/bin/gfv` (a symlink), the bash and zsh
+      completions, the man page (`gft.1.gz`, `gfv.1.gz`), `/usr/share/doc/gft/copyright` (MIT) and
+      `/usr/share/gft/install-method`;
+    - `gft_<version>_checksums.txt`: the SHA-256 of the `.deb`, nothing else;
+    - `gft_<version>_checksums.txt.minisig`: the minisign signature of that file. Its trusted comment
+      holds the tab separated fields `project:gft`, `version`, `tag`, `channel:stable`, `timestamp`
+      and `file`.
 - `/usr/share/gft/install-method` has two lines. A packaged gft reads it and refuses `gft update`,
   `gft --upgrade` and `gft delete` (exit status 1, with the apt command to run instead):
 
-  ```
-  install_method=apt
-  package=deb
-  ```
+    ```
+    install_method=apt
+    package=deb
+    ```
 
-  `package=deb` is the file attached to the GitHub release (the user is told to download the new
-  file and run `sudo apt install ./gft_<version>_all.deb`), `package=apt` the file of the signed apt
-  repository and `package=ppa` the Launchpad build (both: `sudo apt update && sudo apt upgrade gft`).
+    `package=deb` is the file attached to the GitHub release (the user is told to download the new
+    file and run `sudo apt install ./gft_<version>_all.deb`), `package=apt` the file of the signed apt
+    repository and `package=ppa` the Launchpad build (both: `sudo apt update && sudo apt upgrade gft`).
+
 - The draft is created last, after `packaging/verify.sh dist` has passed. `verify.sh` checks the
   signature against the committed `packaging/minisign.pub`, so a secret key that does not belong to
   it stops the run before any release exists.
 
 ## The scripts
 
-| Script                   | Role                                                                                    |
-| ------------------------ | --------------------------------------------------------------------------------------- |
-| `packaging/nfpm.yaml`    | the package: files, modes, symlinks, dependencies                                       |
-| `packaging/build-deb.sh` | stages the man page and the marker, runs `nfpm`, then `lintian`; prints the `.deb` path |
+| Script                   | Role                                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `packaging/nfpm.yaml`    | the package: files, modes, symlinks, dependencies                                        |
+| `packaging/build-deb.sh` | stages the man page and the marker, runs `nfpm`, then `lintian`; prints the `.deb` path  |
 | `packaging/verify.sh`    | signature, trusted comment, checksums, file list, marker, and a run of the extracted gfv |
 
 `build-deb.sh [--kind deb|apt] [--out DIR] [--allow-dirty]` reads `VERSION`, refuses when it differs
@@ -56,18 +57,18 @@ commit gives the same package. The two kinds differ only by the marker.
    machine. It is a key of its own, not the key of any other project. The secret key stays outside
    the repository, protected by a password kept in a password manager:
 
-   ```sh
-   minisign -G -p packaging/minisign.pub -s ~/.minisign/gft.key
-   ```
+    ```sh
+    minisign -G -p packaging/minisign.pub -s ~/.minisign/gft.key
+    ```
 
 3. **Commit the public key** `packaging/minisign.pub`. The run fails at `verify.sh` while this file is
    missing, and the same public key is what users check downloads with.
 4. **Add the two secrets** to the repository:
 
-   ```sh
-   gh secret set MINISIGN_SECRET_KEY --repo 20syldev/gft < ~/.minisign/gft.key
-   gh secret set MINISIGN_PASSWORD --repo 20syldev/gft     # asks for the password
-   ```
+    ```sh
+    gh secret set MINISIGN_SECRET_KEY --repo 20syldev/gft < ~/.minisign/gft.key
+    gh secret set MINISIGN_PASSWORD --repo 20syldev/gft     # asks for the password
+    ```
 
 5. **Try the build without publishing** (next section).
 
@@ -92,10 +93,10 @@ for a test.
    `gft` script together (`build-deb.sh` refuses the package when they differ).
 2. Create the signed tag and push it. Nothing else is pushed by the pipeline:
 
-   ```sh
-   git tag -s 1.2.2 -m 1.2.2
-   git push <remote> 1.2.2
-   ```
+    ```sh
+    git tag -s 1.2.2 -m 1.2.2
+    git push <remote> 1.2.2
+    ```
 
 3. Wait for the run of the workflow `Release` in the Actions tab. It must end green, including the
    step "Verify the package and the signature".
@@ -104,14 +105,15 @@ for a test.
    draft first.
 5. Check the published files from outside, with the committed public key:
 
-   ```sh
-   minisign -V -H -p packaging/minisign.pub -m gft_1.2.2_checksums.txt
-   sha256sum --strict -c gft_1.2.2_checksums.txt
-   ```
+    ```sh
+    minisign -V -H -p packaging/minisign.pub -m gft_1.2.2_checksums.txt
+    sha256sum --strict -c gft_1.2.2_checksums.txt
+    ```
 
-   `-H` makes minisign refuse a legacy signature that is not made on the hash of the file; the
-   release signature is, so keep it. A user does the same with the public key of the repository at
-   the tag, then installs with `sudo apt install ./gft_1.2.2_all.deb`.
+    `-H` makes minisign refuse a legacy signature that is not made on the hash of the file; the
+    release signature is, so keep it. A user does the same with the public key of the repository at
+    the tag, then installs with `sudo apt install ./gft_1.2.2_all.deb`.
+
 6. Publish the PPA source packages (next section), and the apt variant once the apt repository
    exists.
 
@@ -128,22 +130,22 @@ Launchpad account (its fingerprint goes in `SIGN_KEY`, never in the repository).
 2. Try the build without a key. It writes unsigned source packages outside the checkout, in a folder
    of its own so that the real build of step 3 finds it empty, and uploads nothing:
 
-   ```sh
-   packaging/ppa/build-source.sh --dry-run --out /tmp/gft-ppa-dry jammy noble resolute
-   ```
+    ```sh
+    packaging/ppa/build-source.sh --dry-run --out /tmp/gft-ppa-dry jammy noble resolute
+    ```
 
 3. Build the signed source packages, one per series. `gpg` asks for the passphrase of the key for each
    signature, unless `gpg-agent` still has it:
 
-   ```sh
-   SIGN_KEY=<fingerprint> packaging/ppa/build-source.sh jammy noble resolute
-   ```
+    ```sh
+    SIGN_KEY=<fingerprint> packaging/ppa/build-source.sh jammy noble resolute
+    ```
 
-   The versions are `<version>-0ppa1~22.04.1`, `~24.04.1` and `~26.04.1`. The script makes
-   `gft_<version>.orig.tar.gz` from the tag, reproducibly, and the three series share it.
+    The versions are `<version>-0ppa1~22.04.1`, `~24.04.1` and `~26.04.1`. The script makes
+    `gft_<version>.orig.tar.gz` from the tag, reproducibly, and the three series share it.
 
 4. Upload each `.changes` with the `dput` command the script prints at the end (`dput ppa:20syldev/gft
-   <file>`). `dput` warns that the package includes an `.orig.tar.gz` although the Debian revision
+<file>`). `dput` warns that the package includes an `.orig.tar.gz` although the Debian revision
    suggests it is not required: this is expected, every upload carries the same file, and Launchpad
    accepts it when the content is identical. Each upload answers with a mail (Accepted or Rejected),
    then one mail per build.
@@ -214,13 +216,13 @@ git history.
 
 ## When something fails
 
-| Symptom                                                  | Cause                                                                            |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `packaging/minisign.pub` missing, or a signature error   | step 3 of "Before the first release" was not done, or the secret key is another key |
-| the step "Sign the checksums" fails                      | a secret is missing, or the password does not open the key                       |
-| the step "Check the version" fails                       | the tag and `VERSION` differ                                                     |
-| `VERSION is ... but the VERSION= line of gft is ...`     | the two places of the version were not bumped together                           |
-| a `lintian` error or warning                             | see the tag in the log; fix it, or justify an override                           |
-| `unexpected trusted comment`                             | the tag or the version in the signature differ from the tag pushed               |
-| `release already exists` (gh)                            | the release or its draft exists: delete the draft, or publish a new version       |
-| `uncommitted changes in the files of the package`        | local build: commit, or use `--allow-dirty` for a test only                      |
+| Symptom                                                | Cause                                                                               |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `packaging/minisign.pub` missing, or a signature error | step 3 of "Before the first release" was not done, or the secret key is another key |
+| the step "Sign the checksums" fails                    | a secret is missing, or the password does not open the key                          |
+| the step "Check the version" fails                     | the tag and `VERSION` differ                                                        |
+| `VERSION is ... but the VERSION= line of gft is ...`   | the two places of the version were not bumped together                              |
+| a `lintian` error or warning                           | see the tag in the log; fix it, or justify an override                              |
+| `unexpected trusted comment`                           | the tag or the version in the signature differ from the tag pushed                  |
+| `release already exists` (gh)                          | the release or its draft exists: delete the draft, or publish a new version         |
+| `uncommitted changes in the files of the package`      | local build: commit, or use `--allow-dirty` for a test only                         |
