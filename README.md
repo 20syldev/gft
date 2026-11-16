@@ -416,7 +416,7 @@ When the release cannot be found, nothing is printed on stdout, the error goes t
 
 ## Troubleshooting
 
-### Repository not found
+### Repository not found or private
 
 - Check the spelling of username and repository
 - Make sure the repository is public: private repositories are not supported, even with `gh`
