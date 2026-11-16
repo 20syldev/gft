@@ -283,7 +283,7 @@ gh_2.104.0_checksums.txt
 gh_2.104.0_linux_386.deb
 ```
 
-- `--releases --plain`: the first page of releases (ten at most), newest first, as `tag<TAB>YYYY-MM-DD`, with a third column `prerelease` for a pre-release. Pre-releases only appear with `--pre`.
+- `--releases --plain`: the first page of releases (ten at most), newest first, as `tag<TAB>YYYY-MM-DD`, with ` prerelease` after the date for a pre-release (`tag<TAB>YYYY-MM-DD prerelease`). A line never holds more than one tab. Pre-releases only appear with `--pre`.
 - `--assets --plain`: the file names of the assets, decoded and without duplicates. With `--detect` the assets that fit this system come first, with `recommended` in a second column (packages, checksums and signatures are never recommended, as `--install` never picks them).
 - The words `recommended` and `prerelease` are fixed: they are not translated and not affected by the locale.
 - Names that cannot be told apart from a plain file name or tag are dropped: empty lines, control and invisible characters (including bidirectional marks and zero-width characters), bytes that are not valid UTF-8, tabs in a name, duplicates, tags with `..`, the tags `latest`, `main` and `master`, and for assets any name with a slash, a backslash or a leading dot. At most 200 lines are printed. A `%` that is not part of an escape stays as it is.
