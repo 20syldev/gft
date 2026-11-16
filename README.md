@@ -266,7 +266,7 @@ Commands are only recognised as the first argument: `gft user/update` or `gft cl
 | 1      | An error: repository or release not found, network error, a file that exists, a failed download or checksum |
 | 2      | A usage error: an invalid option value or combination, an `--asset` that is not a plain file name or that names several assets, several matches for `--get` without a terminal |
 
-Options that were already there keep the status 1 for their own usage errors (`--source rar`, an unknown option, a missing `--dir`).
+The separate forms of options that were already there keep the status 1 for their own usage errors (`--source rar`, a missing `--dir`, an unknown option). Their new `=` forms (`--source=rar`, `--dir=`) are usage errors with status 2, like an invalid boolean.
 
 ### `--plain`
 

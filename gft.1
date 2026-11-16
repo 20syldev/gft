@@ -401,7 +401,9 @@ that is not a plain file name, several matches for
 .B \-\-get
 without a terminal.
 .PP
-Options that were already there keep the status 1 for their own usage errors.
+The separate forms of options that were already there keep the status 1 for their own
+usage errors; their new \fB=\fR forms (\fB\-\-source=rar\fR, \fB\-\-dir=\fR) are usage errors with
+status 2.
 .B \-q
 on a repository without any release prints \fBNo release found\fR on standard
 error and exits with status 1.
